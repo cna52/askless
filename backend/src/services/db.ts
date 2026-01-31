@@ -82,7 +82,7 @@ export async function getOrCreateAIProfile(): Promise<Profile | null> {
     // Create a new AI profile if none exists
     const aiProfile = {
         id: randomUUID(),
-        username: 'sassy_ai_assistant',
+        username: 'ai_assistant',
         is_ai: true,
         avatar_url: undefined
     }

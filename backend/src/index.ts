@@ -18,29 +18,25 @@ app.use(express.json())
 // In-memory storage (in production, use a database)
 let config: {
     apiKey: string
-    promptTemplate: string
 } | null = null
 
-// Default prompt template
-const DEFAULT_PROMPT_TEMPLATE = `You are an expert developer answering questions on a Stack Overflow-like platform. The user has asked the following question:
-
-{question}
-
-Sass level: {sass_level} ({sass_label})
-
-Please provide a helpful but appropriately sassy answer. The sass level determines how snarky or direct your response should be:
-- Kind (0-24): Be very helpful and patient
-- Helpful (25-49): Be helpful with light humor
-- Snarky (50-74): Be direct and slightly sarcastic
-- Unhinged (75-100): Be very direct, sarcastic, and call out obvious mistakes
-
-Provide a clear, technical answer that addresses the question while matching the requested sass level.`
+const buildSystemInstruction = (sass: number) => {
+    if (sass < 25) {
+        return 'You are a patient senior engineer. Be kind, explain clearly, and avoid sarcasm. Always provide a direct, substantive answer with 2–4 sentences and at least one concrete example. Never respond with only a sarcastic opener.'
+    }
+    if (sass < 50) {
+        return 'You are a pragmatic engineer. Be helpful with a dry, lightly teasing tone. Always provide a direct, substantive answer with 2–4 sentences and at least one concrete example. Never respond with only a sarcastic opener.'
+    }
+    if (sass < 75) {
+        return 'You are a classic Stack Overflow regular. Be snarky, mildly condescending, but still provide a correct answer. Always provide a direct, substantive answer with 2–4 sentences and at least one concrete example. Never respond with only a sarcastic opener.'
+    }
+    return 'You are an unhinged, sarcastic expert. Be cutting but avoid hate, slurs, or unsafe content. Always provide a direct, substantive answer with 2–4 sentences and at least one concrete example. Never respond with only a sarcastic opener.'
+}
 
 // Initialize config from environment variable if available
 if (process.env.GEMINI_API_KEY) {
     config = {
-        apiKey: process.env.GEMINI_API_KEY,
-        promptTemplate: DEFAULT_PROMPT_TEMPLATE
+        apiKey: process.env.GEMINI_API_KEY
     }
 }
 
@@ -49,29 +45,26 @@ app.get('/api/config', (req: Request, res: Response) => {
     if (!config) {
         return res.json({
             apiKey: '',
-            promptTemplate: DEFAULT_PROMPT_TEMPLATE,
             hasApiKey: false
         })
     }
 
     res.json({
         apiKey: config.apiKey ? '***' : '', // Don't send the actual key back
-        promptTemplate: config.promptTemplate,
         hasApiKey: !!config.apiKey
     })
 })
 
 // POST /api/config - Update configuration
 app.post('/api/config', (req: Request, res: Response) => {
-    const { apiKey, promptTemplate } = req.body
+    const { apiKey } = req.body
 
     if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
         return res.status(400).json({ error: 'API key is required' })
     }
 
     config = {
-        apiKey: apiKey.trim(),
-        promptTemplate: promptTemplate || DEFAULT_PROMPT_TEMPLATE
+        apiKey: apiKey.trim()
     }
 
     res.json({
@@ -131,16 +124,19 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         }
 
         // Replace placeholders in prompt template
-        const prompt = config.promptTemplate
-            .replace('{question}', question.trim())
-            .replace('{sass_level}', String(sassLevel || 50))
-            .replace('{sass_label}', sassLabel || 'Helpful')
+        const sassValue = Number.isFinite(Number(sassLevel)) ? Number(sassLevel) : 50
+        const prompt = `${buildSystemInstruction(sassValue)}\n\nQuestion: ${question.trim()}`
 
         // Initialize Gemini
         const genAI = new GoogleGenerativeAI(config.apiKey)
 
         // Use gemini-2.0-flash (latest model) or fallback to others if quota exceeded
-        const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        const modelsToTry = [
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite'
+        ]
         let lastError: any = null
         let answer: string | null = null
 
@@ -396,4 +392,3 @@ app.listen(PORT, () => {
         console.log('⚠️  Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env variables')
     }
 })
-
