@@ -2,6 +2,9 @@ import express, { Request, Response } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { randomUUID } from 'crypto'
+import * as db from './services/db'
+import { supabase } from './lib/supabase'
 
 dotenv.config()
 
@@ -70,10 +73,29 @@ app.post('/api/config', (req: Request, res: Response) => {
     })
 })
 
-// POST /api/ask - Generate answer using Gemini
+// Helper function to get or create a default user profile
+async function getOrCreateDefaultUser(userId?: string): Promise<string> {
+    if (userId) {
+        const profile = await db.getProfile(userId)
+        if (profile) return userId
+    }
+
+    // Create a default user if none provided
+    const defaultUserId = userId || randomUUID()
+    const defaultProfile = await db.createProfile({
+        id: defaultUserId,
+        username: `user_${defaultUserId.substring(0, 8)}`,
+        is_ai: false,
+        avatar_url: undefined
+    })
+
+    return defaultProfile?.id || defaultUserId
+}
+
+// POST /api/ask - Generate answer using Gemini and save to database
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
-        const { question, sassLevel } = req.body
+        const { question, sassLevel, sassLabel, userId, title, tagIds } = req.body
 
         if (!question || typeof question !== 'string' || question.trim() === '') {
             return res.status(400).json({ error: 'Question is required' })
@@ -83,6 +105,22 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             return res.status(400).json({
                 error: 'API key not configured. Please set your Gemini API key in the settings.'
             })
+        }
+
+        // Get or create user profile
+        const questionUserId = await getOrCreateDefaultUser(userId)
+
+        // Save question to database
+        const questionTitle = title || question.substring(0, 100)
+        const savedQuestion = await db.createQuestion(
+            questionUserId,
+            questionTitle,
+            question.trim(),
+            tagIds
+        )
+
+        if (!savedQuestion) {
+            return res.status(500).json({ error: 'Failed to save question to database' })
         }
 
         // Replace placeholders in prompt template
@@ -130,9 +168,25 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             throw new Error(`All models failed. Last error: ${lastError?.message || 'Unknown error'}. ${lastError?.message?.includes('quota') ? 'Your API key has exceeded its quota. Please wait or use a different API key.' : 'Please check your API key has access to Gemini models.'}`)
         }
 
+        // Get or create AI profile
+        const aiProfile = await db.getOrCreateAIProfile()
+        if (!aiProfile) {
+            return res.status(500).json({ error: 'Failed to get AI profile' })
+        }
+
+        // Save answer to database
+        const savedAnswer = await db.createAnswer(
+            savedQuestion.id,
+            aiProfile.id,
+            answer
+        )
+
         res.json({
-            answer: answer,
-            sassLevel: sassValue
+            question: savedQuestion,
+            answer: savedAnswer,
+            answerText: answer,
+            sassLevel: sassLevel || 50,
+            sassLabel: sassLabel || 'Helpful'
         })
     } catch (error: any) {
         console.error('Error generating answer:', error)
@@ -179,6 +233,121 @@ app.post('/api/ask', async (req: Request, res: Response) => {
     }
 })
 
+// GET /api/questions - Get all questions
+app.get('/api/questions', async (req: Request, res: Response) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 50
+        const questions = await db.getQuestions(limit)
+        res.json(questions)
+    } catch (error: any) {
+        console.error('Error fetching questions:', error)
+        res.status(500).json({ error: 'Failed to fetch questions' })
+    }
+})
+
+// GET /api/questions/:id - Get a specific question
+app.get('/api/questions/:id', async (req: Request, res: Response) => {
+    try {
+        const question = await db.getQuestion(req.params.id)
+        if (!question) {
+            return res.status(404).json({ error: 'Question not found' })
+        }
+        res.json(question)
+    } catch (error: any) {
+        console.error('Error fetching question:', error)
+        res.status(500).json({ error: 'Failed to fetch question' })
+    }
+})
+
+// POST /api/questions - Create a new question
+app.post('/api/questions', async (req: Request, res: Response) => {
+    try {
+        const { userId, title, content, tagIds } = req.body
+
+        if (!title || !content) {
+            return res.status(400).json({ error: 'Title and content are required' })
+        }
+
+        const questionUserId = await getOrCreateDefaultUser(userId)
+        const question = await db.createQuestion(questionUserId, title, content, tagIds)
+
+        if (!question) {
+            return res.status(500).json({ error: 'Failed to create question' })
+        }
+
+        res.json(question)
+    } catch (error: any) {
+        console.error('Error creating question:', error)
+        res.status(500).json({ error: 'Failed to create question' })
+    }
+})
+
+// GET /api/questions/:id/answers - Get answers for a question
+app.get('/api/questions/:id/answers', async (req: Request, res: Response) => {
+    try {
+        const answers = await db.getAnswersForQuestion(req.params.id)
+        res.json(answers)
+    } catch (error: any) {
+        console.error('Error fetching answers:', error)
+        res.status(500).json({ error: 'Failed to fetch answers' })
+    }
+})
+
+// POST /api/questions/:id/answers - Create an answer
+app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
+    try {
+        const { userId, content } = req.body
+
+        if (!content) {
+            return res.status(400).json({ error: 'Content is required' })
+        }
+
+        const answerUserId = await getOrCreateDefaultUser(userId)
+        const answer = await db.createAnswer(req.params.id, answerUserId, content)
+
+        if (!answer) {
+            return res.status(500).json({ error: 'Failed to create answer' })
+        }
+
+        res.json(answer)
+    } catch (error: any) {
+        console.error('Error creating answer:', error)
+        res.status(500).json({ error: 'Failed to create answer' })
+    }
+})
+
+// GET /api/tags - Get all tags
+app.get('/api/tags', async (req: Request, res: Response) => {
+    try {
+        const tags = await db.getTags()
+        res.json(tags)
+    } catch (error: any) {
+        console.error('Error fetching tags:', error)
+        res.status(500).json({ error: 'Failed to fetch tags' })
+    }
+})
+
+// POST /api/tags - Create a new tag
+app.post('/api/tags', async (req: Request, res: Response) => {
+    try {
+        const { name } = req.body
+
+        if (!name) {
+            return res.status(400).json({ error: 'Tag name is required' })
+        }
+
+        const tag = await db.createTag(name)
+        if (!tag) {
+            return res.status(500).json({ error: 'Failed to create tag' })
+        }
+
+        res.json(tag)
+    } catch (error: any) {
+        console.error('Error creating tag:', error)
+        res.status(500).json({ error: 'Failed to create tag' })
+    }
+})
+
 // Root endpoint - API information
 app.get('/', (req: Request, res: Response) => {
     res.json({
@@ -189,7 +358,14 @@ app.get('/', (req: Request, res: Response) => {
             'GET /health': 'Health check',
             'GET /api/config': 'Get current configuration',
             'POST /api/config': 'Update API key and prompt template',
-            'POST /api/ask': 'Generate an answer using Gemini AI'
+            'POST /api/ask': 'Generate an answer using Gemini AI and save to database',
+            'GET /api/questions': 'Get all questions',
+            'GET /api/questions/:id': 'Get a specific question',
+            'POST /api/questions': 'Create a new question',
+            'GET /api/questions/:id/answers': 'Get answers for a question',
+            'POST /api/questions/:id/answers': 'Create an answer',
+            'GET /api/tags': 'Get all tags',
+            'POST /api/tags': 'Create a new tag'
         },
         hasApiKey: !!config?.apiKey,
         note: 'This is an API server. Access the frontend UI at http://localhost:5173 (or the port shown when you run "npm run dev" in the frontend folder)'
@@ -207,5 +383,12 @@ app.listen(PORT, () => {
         console.log('✅ Gemini API key configured')
     } else {
         console.log('⚠️  Gemini API key not configured. Set it via POST /api/config or GEMINI_API_KEY env variable')
+    }
+
+    // Test Supabase connection
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+        console.log('✅ Supabase configured')
+    } else {
+        console.log('⚠️  Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env variables')
     }
 })
