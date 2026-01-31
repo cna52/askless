@@ -21,7 +21,7 @@ function App() {
     let ticks = 0
     const id = setInterval(() => {
       ticks += 1
-      setUpvotes((prev) => prev + 1)
+      setUpvotes((prev: number) => prev + 1)
       if (ticks >= 3) clearInterval(id)
     }, 1000)
     return () => clearInterval(id)
@@ -33,7 +33,7 @@ function App() {
     if (!trimmed) return
 
     const cannedAnswers = [
-      'You can fix this by rewriting the module boundary and removing the implicit singleton. No, it is not “overkill.”',
+      'You can fix this by rewriting the module boundary and removing the implicit singleton. No, it is not "overkill."',
       'This is a classic case of fighting the toolchain. Use a simple adapter, then stop touching it.',
       'The problem is your architecture, not your code. But here is the one-line fix you wanted.',
       'Yes, it works. No, I will not explain why. Please read the docs next time.',
@@ -49,86 +49,147 @@ function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="logo-mark">askless.ai</div>
-        <div className="tagline">Answers, but make it emotionally expensive.</div>
+      <header className="top-header">
+        <div className="header-left">
+          <div className="logo">askless</div>
+          <a href="#" className="header-link">Products</a>
+        </div>
+        <div className="header-search">
+          <input type="search" placeholder="Q Search..." className="search-input" />
+        </div>
+        <div className="header-right">
+          <div className="header-icon">
+            <span className="icon-bell">🔔</span>
+            <span className="badge-count">1</span>
+          </div>
+          <div className="header-icon">✉️</div>
+          <div className="header-icon">🏆</div>
+          <div className="header-icon">❓</div>
+          <div className="header-icon">☰</div>
+        </div>
       </header>
 
-      <main className="content">
-        <section className="hero">
-          <h1>
-            ChatOverflow
-            <span className="subtitle">Stack Overflow, but the AI grew up there.</span>
-          </h1>
-          <p>
-            Instant responses, zero empathy, and the occasional polite closure. Fully unnecessary.
-            Completely nostalgic.
-          </p>
-        </section>
+      <div className="main-layout">
+        <aside className="left-sidebar">
+          <nav className="sidebar-nav">
+            <a href="#" className="nav-item active">Home</a>
+            <a href="#" className="nav-item">Questions</a>
+            <a href="#" className="nav-item">AI Assist</a>
+            <a href="#" className="nav-item">Tags</a>
+            <a href="#" className="nav-item">Saves</a>
+            <div className="nav-divider"></div>
+            <a href="#" className="nav-item">Challenges</a>
+            <a href="#" className="nav-item">Chat</a>
+            <a href="#" className="nav-item">Articles</a>
+            <a href="#" className="nav-item">Users</a>
+            <a href="#" className="nav-item">Companies</a>
+          </nav>
+        </aside>
 
-        <section className="panel">
-          <form className="question-form" onSubmit={handleSubmit}>
-            <label className="label" htmlFor="question">
-              Ask your question
-            </label>
-            <textarea
-              id="question"
-              className="question-input"
-              placeholder="Why does my Docker container refuse to build when it works on my machine?"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              rows={6}
-            />
-
-            <div className="slider-row">
-              <div className="slider-label">Sass level</div>
-              <div className="slider-track">
-                <span>Kind</span>
+        <main className="content-area">
+          <section className="ai-assist-section">
+            <h1 className="ai-assist-title">Hey there, what do you want to learn today?</h1>
+            <p className="ai-assist-subtitle">
+              Get instant answers with AI Assist, grounded in community-verified knowledge.
+            </p>
+            <form className="ai-assist-form" onSubmit={handleSubmit}>
+              <div className="input-wrapper">
+                <textarea
+                  className="ai-assist-input"
+                  placeholder="Start a chat with AI Assist..."
+                  value={question}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setQuestion(event.target.value)}
+                  rows={3}
+                />
+                <button type="submit" className="ai-assist-submit">↑</button>
+              </div>
+              <div className="slider-controls">
+                <label className="slider-label">Sass level: {sassLabel}</label>
                 <input
                   type="range"
                   min={0}
                   max={100}
                   value={sass}
-                  onChange={(event) => setSass(Number(event.target.value))}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSass(Number(event.target.value))}
+                  className="sass-slider"
                 />
-                <span>Unhinged</span>
               </div>
-              <div className="slider-pill">{sassLabel}</div>
-            </div>
+            </form>
+            <p className="ai-assist-disclaimer">
+              By using AI Assist, you agree to askless.ai's Terms of Service and Privacy Policy.
+            </p>
+          </section>
 
-            <button className="submit" type="submit">
-              Submit (and be judged)
-            </button>
-          </form>
-        </section>
-
-        <section className="answer-wrap">
-          <div className={`answer-card ${answer ? 'visible' : ''}`}>
-            <div className="answer-meta">
-              <div className="accepted">
-                <span className="check" aria-hidden="true">
-                  ✓
-                </span>
-                Accepted Answer
+          {answer && (
+            <section className="answer-section">
+              <div className="answer-card">
+                <div className="answer-header">
+                  <div className="answer-votes">
+                    <button className="vote-button upvote">▲</button>
+                    <div className="vote-count">{upvotes}</div>
+                    <button className="vote-button downvote">▼</button>
+                  </div>
+                  <div className="answer-content">
+                    {isClosed && (
+                      <div className="closed-banner">Closed as duplicate · See: "RTFM #812"</div>
+                    )}
+                    <div className="answer-text">{answer}</div>
+                    <div className="answer-footer">
+                      <div className="answer-author">
+                        <span>Answered by:</span>
+                        <a href="#" className="author-link">overengineered_dev_2009</a>
+                        <span className="author-badge">AI upvoted itself</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="votes">▲ {upvotes}</div>
-            </div>
+            </section>
+          )}
 
-            {isClosed && <div className="closed">Closed as duplicate · See: “RTFM #812”</div>}
-
-            <div className="answer-body">
-              <div className="answer-title">Answer</div>
-              <p>{answer || 'Ask something first. We are waiting.'}</p>
+          <section className="stats-section">
+            <div className="stat-card">
+              <div className="stat-value">{upvotes}</div>
+              <div className="stat-label">Reputation</div>
+              <p className="stat-description">Earn reputation by Asking, Answering & Editing.</p>
             </div>
-
-            <div className="answer-footer">
-              <span>Answered by:</span>
-              <strong>overengineered_dev_2009</strong>
-              <span className="badge">AI upvoted itself</span>
+            <div className="stat-card">
+              <div className="stat-title">Badge progress</div>
+              <p className="stat-description">Take the tour to earn your first badge!</p>
+              <button className="stat-button">Get started here</button>
             </div>
+            <div className="stat-card">
+              <div className="stat-title">
+                Watched tags
+                <span className="stat-icon">⚙️</span>
+              </div>
+              <p className="stat-description">You're not watching any tags yet!</p>
+              <button className="stat-button">Customize your feed</button>
+            </div>
+          </section>
+        </main>
+
+        <aside className="right-sidebar">
+          <button className="ask-question-btn">Ask Question</button>
+          <div className="sidebar-widget">
+            <h3 className="widget-title">The Overflow Blog</h3>
+            <ul className="widget-list">
+              <li>Are you learning with AI? We want to know about it!</li>
+              <li>Wanna see a CSS magic trick?</li>
+            </ul>
           </div>
-        </section>
-      </main>
+          <div className="sidebar-widget">
+            <h3 className="widget-title">Featured on Meta</h3>
+            <ul className="widget-list">
+              <li>Results of the January 2026 Community Asks Sprint: Community Badges</li>
+              <li>All users on Stack Exchange can now participate in chat</li>
+              <li>Policy: Generative AI (e.g., ChatGPT) is banned</li>
+              <li>Stack Overflow now uses machine learning to flag spam automatically</li>
+              <li>No, I do not believe this is the end</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
