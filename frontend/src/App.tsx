@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { User } from '@supabase/supabase-js'
+import { supabase } from './lib/supabaseClient'
 import './App.css'
 
 function App() {
@@ -7,6 +9,9 @@ function App() {
   const [answer, setAnswer] = useState('')
   const [upvotes, setUpvotes] = useState(0)
   const [isClosed, setIsClosed] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
+  const [authError, setAuthError] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -30,6 +35,75 @@ function App() {
     }, 1000)
     return () => clearInterval(id)
   }, [answer])
+
+  useEffect(() => {
+    let isMounted = true
+    supabase.auth.getSession().then(({ data }) => {
+      if (isMounted) setUser(data.session?.user ?? null)
+    })
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const upsertProfile = async (currentUser: User) => {
+      const username =
+        currentUser.user_metadata?.user_name ||
+        currentUser.user_metadata?.preferred_username ||
+        currentUser.user_metadata?.full_name ||
+        currentUser.email?.split('@')[0] ||
+        `user_${currentUser.id.slice(0, 6)}`
+      const avatarUrl = currentUser.user_metadata?.avatar_url || null
+
+      const { error: upsertError } = await supabase.from('profiles').upsert(
+        {
+          id: currentUser.id,
+          username,
+          is_ai: false,
+          avatar_url: avatarUrl,
+        },
+        { onConflict: 'id' }
+      )
+
+      if (upsertError) {
+        console.warn('Profile upsert failed:', upsertError.message)
+      }
+    }
+
+    if (user) {
+      upsertProfile(user)
+    }
+  }, [user])
+
+  const handleLogin = async () => {
+    setAuthError('')
+    setAuthLoading(true)
+    const { error: signInError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: 'http://localhost:3000/oauth/consent',
+      },
+    })
+    if (signInError) {
+      setAuthError('Login failed. Check your Supabase Google OAuth settings.')
+    }
+    setAuthLoading(false)
+  }
+
+  const handleLogout = async () => {
+    setAuthError('')
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) {
+      setAuthError('Sign out failed. Try again.')
+    }
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -77,6 +151,26 @@ function App() {
           <input type="search" placeholder="Q Search..." className="search-input" />
         </div>
         <div className="header-right">
+          {user ? (
+            <div className="auth-user">
+              <span className="auth-name">
+                {user.user_metadata?.full_name || user.user_metadata?.name || user.email}
+              </span>
+              <button type="button" className="auth-button ghost" onClick={handleLogout}>
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="auth-button"
+              onClick={handleLogin}
+              disabled={authLoading}
+            >
+              {authLoading ? 'Redirecting…' : 'Sign in with Google'}
+            </button>
+          )}
+          {authError && <span className="auth-error">{authError}</span>}
           <div className="header-icon">
             <span className="icon-bell">🔔</span>
             <span className="badge-count">1</span>
