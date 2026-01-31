@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { randomUUID } from 'crypto'
 import * as db from './services/db'
 import { supabase } from './lib/supabase'
 
@@ -73,29 +72,34 @@ app.post('/api/config', (req: Request, res: Response) => {
     })
 })
 
-// Helper function to get or create a default user profile
-async function getOrCreateDefaultUser(userId?: string): Promise<string> {
-    if (userId) {
-        const profile = await db.getProfile(userId)
-        if (profile) return userId
-    }
+// Helper function to ensure a user profile exists
+async function ensureUserProfile(params: {
+    userId?: string
+    username?: string
+    avatarUrl?: string | null
+    isAi?: boolean
+}): Promise<string | null> {
+    const { userId, username, avatarUrl, isAi } = params
+    if (!userId) return null
 
-    // Create a default user if none provided
-    const defaultUserId = userId || randomUUID()
-    const defaultProfile = await db.createProfile({
-        id: defaultUserId,
-        username: `user_${defaultUserId.substring(0, 8)}`,
-        is_ai: false,
-        avatar_url: undefined
+    const existing = await db.getProfile(userId)
+    if (existing) return userId
+
+    const fallbackUsername = username || `user_${userId.substring(0, 8)}`
+    const created = await db.upsertProfile({
+        id: userId,
+        username: fallbackUsername,
+        is_ai: Boolean(isAi),
+        avatar_url: avatarUrl || undefined
     })
 
-    return defaultProfile?.id || defaultUserId
+    return created?.id || null
 }
 
 // POST /api/ask - Generate answer using Gemini and save to database
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
-        const { question, sassLevel, sassLabel, userId, title, tagIds } = req.body
+        const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl } = req.body
 
         if (!question || typeof question !== 'string' || question.trim() === '') {
             return res.status(400).json({ error: 'Question is required' })
@@ -107,8 +111,16 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             })
         }
 
-        // Get or create user profile
-        const questionUserId = await getOrCreateDefaultUser(userId)
+        const questionUserId = await ensureUserProfile({
+            userId,
+            username,
+            avatarUrl,
+            isAi: false
+        })
+
+        if (!questionUserId) {
+            return res.status(401).json({ error: 'User is required to ask a question' })
+        }
 
         // Save question to database
         const questionTitle = title || question.substring(0, 100)
@@ -168,8 +180,15 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             throw new Error(`All models failed. Last error: ${lastError?.message || 'Unknown error'}. ${lastError?.message?.includes('quota') ? 'Your API key has exceeded its quota. Please wait or use a different API key.' : 'Please check your API key has access to Gemini models.'}`)
         }
 
-        // Get or create AI profile
-        const aiProfile = await db.getOrCreateAIProfile()
+        const aiUserId = process.env.AI_USER_ID || questionUserId
+        const aiProfileId = await ensureUserProfile({
+            userId: aiUserId,
+            username: 'ai_assistant',
+            avatarUrl: null,
+            isAi: true
+        })
+
+        const aiProfile = aiProfileId ? await db.getProfile(aiProfileId) : null
         if (!aiProfile) {
             return res.status(500).json({ error: 'Failed to get AI profile' })
         }
@@ -262,13 +281,21 @@ app.get('/api/questions/:id', async (req: Request, res: Response) => {
 // POST /api/questions - Create a new question
 app.post('/api/questions', async (req: Request, res: Response) => {
     try {
-        const { userId, title, content, tagIds } = req.body
+        const { userId, title, content, tagIds, username, avatarUrl } = req.body
 
         if (!title || !content) {
             return res.status(400).json({ error: 'Title and content are required' })
         }
 
-        const questionUserId = await getOrCreateDefaultUser(userId)
+        const questionUserId = await ensureUserProfile({
+            userId,
+            username,
+            avatarUrl,
+            isAi: false
+        })
+        if (!questionUserId) {
+            return res.status(401).json({ error: 'User is required to create a question' })
+        }
         const question = await db.createQuestion(questionUserId, title, content, tagIds)
 
         if (!question) {
@@ -296,13 +323,21 @@ app.get('/api/questions/:id/answers', async (req: Request, res: Response) => {
 // POST /api/questions/:id/answers - Create an answer
 app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
     try {
-        const { userId, content } = req.body
+        const { userId, content, username, avatarUrl } = req.body
 
         if (!content) {
             return res.status(400).json({ error: 'Content is required' })
         }
 
-        const answerUserId = await getOrCreateDefaultUser(userId)
+        const answerUserId = await ensureUserProfile({
+            userId,
+            username,
+            avatarUrl,
+            isAi: false
+        })
+        if (!answerUserId) {
+            return res.status(401).json({ error: 'User is required to create an answer' })
+        }
         const answer = await db.createAnswer(req.params.id, answerUserId, content)
 
         if (!answer) {

@@ -66,6 +66,20 @@ export async function createProfile(profile: Omit<Profile, 'id'> & { id: string 
     return data
 }
 
+export async function upsertProfile(profile: Omit<Profile, 'id'> & { id: string }): Promise<Profile | null> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .upsert(profile, { onConflict: 'id' })
+        .select()
+        .single()
+
+    if (error) {
+        console.error('Error upserting profile:', error)
+        return null
+    }
+    return data
+}
+
 export async function getOrCreateAIProfile(): Promise<Profile | null> {
     // First, try to find an existing AI profile
     const { data: existing } = await supabase
@@ -238,4 +252,3 @@ export async function getTagsForQuestion(questionId: string): Promise<Tag[]> {
     }
     return data?.map((item: any) => item.tags).filter(Boolean) || []
 }
-

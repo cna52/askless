@@ -109,6 +109,10 @@ function App() {
     event.preventDefault()
     const trimmed = question.trim()
     if (!trimmed) return
+    if (!user) {
+      setError('Please sign in before asking a question.')
+      return
+    }
     setIsLoading(true)
     setError('')
     setAnswer('')
@@ -116,6 +120,13 @@ function App() {
     setUpvotes(0)
 
     try {
+      const username =
+        user.user_metadata?.user_name ||
+        user.user_metadata?.preferred_username ||
+        user.user_metadata?.full_name ||
+        user.email?.split('@')[0]
+      const avatarUrl = user.user_metadata?.avatar_url || null
+
       const response = await fetch(`${apiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,6 +134,9 @@ function App() {
           question: trimmed,
           sassLevel: sass,
           sassLabel,
+          userId: user.id,
+          username,
+          avatarUrl,
         }),
       })
 
@@ -130,8 +144,8 @@ function App() {
         throw new Error('Backend error')
       }
 
-      const data = (await response.json()) as { answer: string }
-      setAnswer(data.answer)
+      const data = (await response.json()) as { answerText?: string; answer?: { content?: string } }
+      setAnswer(data.answerText || data.answer?.content || '')
       setIsClosed(sass >= 65 || trimmed.length < 12)
     } catch (err) {
       setError('Backend is judging you silently. Check the server logs.')
