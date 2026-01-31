@@ -162,6 +162,13 @@
   box-shadow: 0 16px 26px rgba(226, 109, 92, 0.35);
 }
 
+.submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .answer-wrap {
   display: grid;
 }

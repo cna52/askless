@@ -7,6 +7,10 @@ function App() {
   const [answer, setAnswer] = useState('')
   const [upvotes, setUpvotes] = useState(0)
   const [isClosed, setIsClosed] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
 
   const sassLabel = useMemo(() => {
     if (sass < 25) return 'Kind'
@@ -27,24 +31,35 @@ function App() {
     return () => clearInterval(id)
   }, [answer])
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     const trimmed = question.trim()
     if (!trimmed) return
+    setIsLoading(true)
+    setError('')
+    setAnswer('')
+    setIsClosed(false)
+    setUpvotes(0)
 
-    const cannedAnswers = [
-      'You can fix this by rewriting the module boundary and removing the implicit singleton. No, it is not “overkill.”',
-      'This is a classic case of fighting the toolchain. Use a simple adapter, then stop touching it.',
-      'The problem is your architecture, not your code. But here is the one-line fix you wanted.',
-      'Yes, it works. No, I will not explain why. Please read the docs next time.',
-    ]
+    try {
+      const response = await fetch(`${apiBase}/api/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmed, sass }),
+      })
 
-    const sassIndex = Math.min(cannedAnswers.length - 1, Math.floor(sass / 25))
-    const body = cannedAnswers[sassIndex]
-    const snark = sass >= 70 ? 'Also, your variable names are doing the opposite of helping.' : ''
+      if (!response.ok) {
+        throw new Error('Backend error')
+      }
 
-    setIsClosed(sass >= 65 || trimmed.length < 12)
-    setAnswer(`${body} ${snark}`.trim())
+      const data = (await response.json()) as { answer: string; isClosed?: boolean }
+      setAnswer(data.answer)
+      setIsClosed(Boolean(data.isClosed))
+    } catch (err) {
+      setError('Backend is judging you silently. Check the server logs.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -96,8 +111,8 @@ function App() {
               <div className="slider-pill">{sassLabel}</div>
             </div>
 
-            <button className="submit" type="submit">
-              Submit (and be judged)
+            <button className="submit" type="submit" disabled={isLoading}>
+              {isLoading ? 'Generating…' : 'Submit (and be judged)'}
             </button>
           </form>
         </section>
@@ -118,7 +133,13 @@ function App() {
 
             <div className="answer-body">
               <div className="answer-title">Answer</div>
-              <p>{answer || 'Ask something first. We are waiting.'}</p>
+              <p>
+                {error ||
+                  answer ||
+                  (isLoading
+                    ? 'Thinking. This might take as long as a real Stack Overflow thread.'
+                    : 'Ask something first. We are waiting.')}
+              </p>
             </div>
 
             <div className="answer-footer">
