@@ -80,7 +80,7 @@ interface CachedQuestion {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tabs'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tags'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -562,8 +562,8 @@ function App() {
       } else if (hash === '#questions') {
         setCurrentPage('questions')
         setView('ask')
-      } else if (hash === '#tabs') {
-        setCurrentPage('tabs')
+      } else if (hash === '#tags') {
+        setCurrentPage('tags')
         setView('ask')
       } else if (hash.startsWith('#questions/')) {
         const questionId = hash.replace('#questions/', '')
@@ -1114,15 +1114,15 @@ function App() {
             </a>
             <a
               href="#"
-              className={`mobile-nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
+              className={`mobile-nav-item ${currentPage === 'tags' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('tabs')
-                window.location.hash = '#tabs'
+                setCurrentPage('tags')
+                window.location.hash = '#tags'
                 setMobileMenuOpen(false)
               }}
             >
-              Tabs
+              Tags
             </a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Saves</a>
             <div className="mobile-nav-divider"></div>
@@ -1163,14 +1163,14 @@ function App() {
             </a>
             <a
               href="#"
-              className={`nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
+              className={`nav-item ${currentPage === 'tags' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('tabs')
-                window.location.hash = '#tabs'
+                setCurrentPage('tags')
+                window.location.hash = '#tags'
               }}
             >
-              Tabs
+              Tags
             </a>
             <a href="#" className="nav-item">Saves</a>
             <div className="nav-divider"></div>
@@ -1384,7 +1384,7 @@ function App() {
             </>
           ) : currentPage === 'questions' ? (
             <Questions onSelectQuestion={handleSelectQuestion} />
-          ) : currentPage === 'tabs' ? (
+          ) : currentPage === 'tags' ? (
             <Tabs onSelectQuestion={handleSelectQuestion} />
           ) : (
             <>
