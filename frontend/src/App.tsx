@@ -483,8 +483,69 @@ function App() {
         tagNames = names
       }
 
+      const pollForAnswers = async (attempt = 0) => {
+        if (attempt >= 6) return
+        const response = await fetch(`${apiBase}/api/questions/${questionId}/answers`)
+        if (!response.ok) return
+        const answers = await response.json()
+        if (!Array.isArray(answers) || answers.length === 0) {
+          setTimeout(() => pollForAnswers(attempt + 1), 1500)
+          return
+        }
+
+        const userIds = Array.from(new Set(answers.map((answer: any) => answer.user_id)))
+        let profileMap = new Map<string, { id: string; username: string; avatar_url?: string; is_ai?: boolean }>()
+        if (userIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url, is_ai')
+            .in('id', userIds)
+          profileMap = new Map(profiles?.map(profile => [profile.id, profile]) || [])
+        }
+
+        const botAnswers = answers.map((answer: any) => {
+          const profile = profileMap.get(answer.user_id)
+          return {
+            answer: {
+              id: answer.id,
+              content: answer.content,
+              created_at: answer.created_at,
+            },
+            botProfile: profile || {
+              id: answer.user_id,
+              username: 'Unknown',
+            },
+            botName: profile?.is_ai ? 'AI Assistant' : 'User',
+            botId: answer.user_id,
+            answerText: answer.content,
+          }
+        })
+
+        setAnswers(botAnswers)
+        setVisibleAnswers(botAnswers)
+        loadQuestionComments(questionId)
+        botAnswers.forEach((botAnswer: BotAnswer) => {
+          loadComments(botAnswer.answer.id)
+          loadVoteCounts(undefined, botAnswer.answer.id)
+        })
+        loadVoteCounts(questionId)
+        setCachedQuestion(questionId, {
+          question,
+          answers: botAnswers,
+          tags: tagNames,
+          cachedAt: Date.now(),
+        })
+      }
+
       if (answersResponse.ok) {
         const answers = await answersResponse.json()
+        if (Array.isArray(answers) && answers.length === 0) {
+          // No answers yet (fast mode). Poll briefly.
+          setTimeout(() => {
+            pollForAnswers()
+          }, 1200)
+          return
+        }
         const userIds = Array.from(new Set(answers.map((answer: any) => answer.user_id)))
 
         let profileMap = new Map<string, { id: string; username: string; avatar_url?: string; is_ai?: boolean }>()
@@ -540,6 +601,7 @@ function App() {
           cachedAt: Date.now(),
         })
       }
+
     } catch (err) {
       console.error('Failed to load question:', err)
     } finally {
