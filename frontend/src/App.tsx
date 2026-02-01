@@ -930,6 +930,27 @@ function App() {
                         )}
                       </div>
                     </div>
+                    <div className="form-group">
+                      <label htmlFor="body" className="form-label">
+                        Description <span className="required">*</span>
+                      </label>
+                      <p className="form-hint">
+                        Include all the information someone would need to answer your question. Min 20 characters.
+                      </p>
+                      <textarea
+                        id="body"
+                        className="form-textarea"
+                        placeholder="Describe your problem, what you've tried, and any relevant details..."
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                        rows={10}
+                      />
+                      <div className="form-counter">
+                        {bodyLength} {!isBodyValid && bodyLength > 0 && (
+                          <span className="form-error"> (minimum 20 characters)</span>
+                        )}
+                      </div>
+                    </div>
                     <div className="tag-selection-wrapper">
                       <label className="tag-selection-label">Select tags (up to 5):</label>
                       <div className="tag-grid">
