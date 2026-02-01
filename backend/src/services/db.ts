@@ -46,7 +46,15 @@ export async function getProfile(userId: string): Promise<Profile | null> {
         .single()
 
     if (error) {
-        console.error('Error fetching profile:', error)
+        // Don't log error if profile simply doesn't exist (code PGRST116)
+        if (error.code !== 'PGRST116') {
+            console.error('Error fetching profile:', {
+                userId,
+                error: error.message,
+                code: error.code,
+                details: error.details
+            })
+        }
         return null
     }
     return data
@@ -74,7 +82,69 @@ export async function upsertProfile(profile: Omit<Profile, 'id'> & { id: string 
         .single()
 
     if (error) {
-        console.error('Error upserting profile:', error)
+        console.error('Error upserting profile:', {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+            profile: { id: profile.id, username: profile.username, is_ai: profile.is_ai }
+        })
+        return null
+    }
+    return data
+}
+
+// Simplified function for AI bot profiles
+// Note: This requires bot users to exist in auth.users first due to foreign key constraint
+// See the SQL migration script in the README or run the provided SQL to create bot users
+export async function upsertAIProfile(profile: Omit<Profile, 'id'> & { id: string }): Promise<Profile | null> {
+    // First check if profile already exists
+    const existing = await getProfile(profile.id)
+    if (existing) {
+        return existing
+    }
+
+    // Try to create the profile
+    // The foreign key constraint requires the user to exist in auth.users
+    // We'll try to create it, and if it fails, provide helpful error message
+    const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+            id: profile.id,
+            username: profile.username,
+            is_ai: true, // Force is_ai to true for AI profiles
+            avatar_url: profile.avatar_url || null
+        })
+        .select()
+        .single()
+
+    if (error) {
+        // If insert fails (e.g., profile already exists), try to get it
+        if (error.code === '23505') { // Unique violation
+            const existingProfile = await getProfile(profile.id)
+            if (existingProfile) {
+                return existingProfile
+            }
+        }
+
+        // If foreign key error, provide helpful message with SQL solution
+        if (error.code === '23503') {
+            const botEmail = `${profile.username.replace(/[^a-z0-9]/g, '_')}@bot.askless.local`
+            console.error(`\n❌ Foreign key constraint error for ${profile.id}`)
+            console.error(`The bot user needs to exist in auth.users first.`)
+            console.error(`\nTo fix this, run this SQL in your Supabase SQL Editor:`)
+            console.error(`\nINSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data, role)`)
+            console.error(`VALUES ('${profile.id}', '${botEmail}', '', NOW(), NOW(), NOW(), '{"provider":"bot","providers":["bot"]}'::jsonb, '{"is_ai":true}'::jsonb, 'authenticated')`)
+            console.error(`ON CONFLICT (id) DO NOTHING;\n`)
+        }
+
+        console.error('Error creating AI profile:', {
+            error: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+            profile: { id: profile.id, username: profile.username }
+        })
         return null
     }
     return data

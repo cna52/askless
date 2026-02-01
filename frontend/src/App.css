@@ -407,6 +407,119 @@
   margin-bottom: 16px;
 }
 
+/* Markdown styling within answer text */
+.answer-text p {
+  margin: 0 0 1em 0;
+}
+
+.answer-text p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-text code {
+  background-color: #f4f4f4;
+  border: 1px solid #e1e4e8;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e83e8c;
+}
+
+.answer-text pre {
+  background-color: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.answer-text pre code {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: 0.85em;
+}
+
+.answer-text strong {
+  font-weight: 600;
+  color: var(--so-text);
+}
+
+.answer-text em {
+  font-style: italic;
+}
+
+.answer-text ul,
+.answer-text ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.answer-text li {
+  margin: 0.25em 0;
+}
+
+.answer-text blockquote {
+  border-left: 4px solid var(--so-blue-light);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--so-text-muted);
+  font-style: italic;
+}
+
+.answer-text a {
+  color: var(--so-blue);
+  text-decoration: none;
+}
+
+.answer-text a:hover {
+  text-decoration: underline;
+}
+
+.answer-text h1,
+.answer-text h2,
+.answer-text h3,
+.answer-text h4,
+.answer-text h5,
+.answer-text h6 {
+  margin: 1em 0 0.5em 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.answer-text h1:first-child,
+.answer-text h2:first-child,
+.answer-text h3:first-child {
+  margin-top: 0;
+}
+
+.answer-text hr {
+  border: none;
+  border-top: 1px solid var(--so-border);
+  margin: 1.5em 0;
+}
+
+.answer-text table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+.answer-text table th,
+.answer-text table td {
+  border: 1px solid var(--so-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.answer-text table th {
+  background-color: var(--so-bg-secondary);
+  font-weight: 600;
+}
+
 .answer-footer {
   padding-top: 16px;
   border-top: 1px solid var(--so-border);

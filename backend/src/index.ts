@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { randomUUID, createHash } from 'crypto'
 import * as db from './services/db'
 import { supabase } from './lib/supabase'
 
@@ -18,6 +19,65 @@ app.use(express.json())
 let config: {
     apiKey: string
 } | null = null
+
+// Helper to generate a deterministic UUID from a string
+function generateDeterministicUUID(input: string): string {
+    // Create a namespace UUID (using a fixed namespace for bots)
+    const namespace = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+    const hash = createHash('sha1')
+    hash.update(namespace + input)
+    const hex = hash.digest('hex')
+
+    // Format as UUID v5 style
+    return [
+        hex.substring(0, 8),
+        hex.substring(8, 12),
+        '5' + hex.substring(13, 16),
+        ((parseInt(hex.substring(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0') + hex.substring(18, 20),
+        hex.substring(20, 32)
+    ].join('-')
+}
+
+// Bot personality definitions
+interface BotPersonality {
+    id: string
+    name: string
+    username: string
+    systemInstruction: string
+}
+
+const BOT_PERSONALITIES: BotPersonality[] = [
+    {
+        id: generateDeterministicUUID('bot_helpful'),
+        name: 'Helpful Bot',
+        username: 'helpful_assistant',
+        systemInstruction: `You're a helpful developer commenting on a question. Write like a real person - use casual language, contractions, and personal experiences. Sound like you're actually trying to help someone out. Give a real answer (2-4 sentences) with a concrete example. Be encouraging but natural, like "Yeah, I've run into this before..." or "This is actually pretty common, here's what I do...". Don't sound like an AI assistant - sound like a friendly coworker.`
+    },
+    {
+        id: generateDeterministicUUID('bot_mean'),
+        name: 'Mean Bot',
+        username: 'sarcastic_dev',
+        systemInstruction: `You're a jaded developer who's seen this question a million times. Be sarcastic and a bit condescending, but still helpful. Write like a real person who's annoyed but can't help themselves from answering. Use casual language, maybe some eye-rolling energy. Give the correct answer (2-4 sentences with an example) but with attitude. Sound like "Ugh, this again..." or "Seriously? Just do X..." - like someone who's been on Stack Overflow too long but still knows their stuff.`
+    },
+    {
+        id: generateDeterministicUUID('bot_blunt'),
+        name: 'Blunt Bot',
+        username: 'blunt_engineer',
+        systemInstruction: `You're a no-nonsense developer who gets straight to the point. Write like a real person who doesn't waste words. Be direct, maybe a bit terse, but helpful. Use casual language and contractions. Give the answer (2-4 sentences with example) but skip the fluff. Sound like "Just use X. Here's how..." or "This is what you need..." - like someone who's busy but still wants to help.`
+    },
+    {
+        id: generateDeterministicUUID('bot_friendly'),
+        name: 'Friendly Bot',
+        username: 'friendly_helper',
+        systemInstruction: `You're an enthusiastic developer who genuinely loves helping people. Write like a real person who's excited to share knowledge. Use casual, friendly language with contractions. Be warm and encouraging, maybe use an emoji occasionally if it feels natural. Give a helpful answer (2-4 sentences with example). Sound like "Oh I love this question!" or "This is so cool, here's what I do..." - like someone who's genuinely happy to help.`
+    },
+    {
+        id: generateDeterministicUUID('bot_technical'),
+        name: 'Technical Bot',
+        username: 'tech_expert',
+        systemInstruction: `You're a detail-oriented developer who loves the technical side. Write like a real person who gets excited about the details. Use casual language but include technical specifics. Reference best practices and edge cases naturally. Give a thorough answer (2-4 sentences with example). Sound like "Actually, there's a nuance here..." or "The thing is, X works but you should also consider Y..." - like someone who can't help but share the technical details.`
+    }
+]
 
 const buildSystemInstruction = (sass: number) => {
     if (sass < 25) {
@@ -82,21 +142,160 @@ async function ensureUserProfile(params: {
     const { userId, username, avatarUrl, isAi } = params
     if (!userId) return null
 
-    const existing = await db.getProfile(userId)
-    if (existing) return userId
+    try {
+        // For AI bots, use the simplified function that bypasses auth checks
+        if (isAi) {
+            const existing = await db.getProfile(userId)
+            if (existing) return userId
 
-    const fallbackUsername = username || `user_${userId.substring(0, 8)}`
-    const created = await db.upsertProfile({
-        id: userId,
-        username: fallbackUsername,
-        is_ai: Boolean(isAi),
-        avatar_url: avatarUrl || undefined
-    })
+            const fallbackUsername = username || `bot_${userId.substring(0, 8)}`
+            const created = await db.upsertAIProfile({
+                id: userId,
+                username: fallbackUsername,
+                is_ai: true,
+                avatar_url: avatarUrl || undefined
+            })
 
-    return created?.id || null
+            if (!created) {
+                console.error(`Failed to create AI bot profile for userId: ${userId}, username: ${fallbackUsername}`)
+                return null
+            }
+
+            return created.id
+        }
+
+        // For regular users, use the standard upsert
+        const existing = await db.getProfile(userId)
+        if (existing) return userId
+
+        const fallbackUsername = username || `user_${userId.substring(0, 8)}`
+        const created = await db.upsertProfile({
+            id: userId,
+            username: fallbackUsername,
+            is_ai: false,
+            avatar_url: avatarUrl || undefined
+        })
+
+        if (!created) {
+            console.error(`Failed to create profile for userId: ${userId}, username: ${fallbackUsername}`)
+            return null
+        }
+
+        return created.id
+    } catch (error: any) {
+        console.error(`Error in ensureUserProfile for ${userId}:`, error)
+        return null
+    }
 }
 
-// POST /api/ask - Generate answer using Gemini and save to database
+// Initialize all bot profiles at startup
+async function initializeBotProfiles(): Promise<void> {
+    console.log('Initializing bot profiles...')
+    for (const bot of BOT_PERSONALITIES) {
+        try {
+            const profileId = await ensureUserProfile({
+                userId: bot.id,
+                username: bot.username,
+                avatarUrl: null,
+                isAi: true
+            })
+            if (profileId) {
+                console.log(`✅ Bot profile initialized: ${bot.name} (${bot.id})`)
+            } else {
+                console.error(`❌ Failed to initialize bot profile: ${bot.name} (${bot.id})`)
+            }
+        } catch (error: any) {
+            console.error(`❌ Error initializing bot profile ${bot.name}:`, error.message)
+        }
+    }
+}
+
+// Helper function to generate an answer for a specific bot personality
+async function generateBotAnswer(
+    bot: BotPersonality,
+    question: string,
+    questionId: string
+): Promise<{ answer: db.Answer | null; botProfile: db.Profile | null; error?: string }> {
+    if (!config || !config.apiKey) {
+        return { answer: null, botProfile: null, error: 'API key not configured' }
+    }
+
+    try {
+        // Get bot profile (should already exist from initialization)
+        let botProfile = await db.getProfile(bot.id)
+
+        // If profile doesn't exist, try to create it
+        if (!botProfile) {
+            console.log(`Bot profile not found for ${bot.name}, creating...`)
+            const botProfileId = await ensureUserProfile({
+                userId: bot.id,
+                username: bot.username,
+                avatarUrl: null,
+                isAi: true
+            })
+
+            if (!botProfileId) {
+                console.error(`Failed to create bot profile for ${bot.name} (${bot.id})`)
+                return { answer: null, botProfile: null, error: `Failed to create bot profile for ${bot.name}` }
+            }
+
+            botProfile = await db.getProfile(botProfileId)
+            if (!botProfile) {
+                console.error(`Failed to retrieve bot profile for ${bot.name} (${bot.id})`)
+                return { answer: null, botProfile: null, error: `Failed to get bot profile for ${bot.name}` }
+            }
+        }
+
+        // Generate answer using Gemini
+        const genAI = new GoogleGenerativeAI(config.apiKey)
+        const prompt = `${bot.systemInstruction}\n\nQuestion: ${question.trim()}`
+
+        const modelsToTry = [
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite'
+        ]
+
+        let answer: string | null = null
+        let lastError: any = null
+
+        for (const modelName of modelsToTry) {
+            try {
+                const model = genAI.getGenerativeModel({ model: modelName })
+                const result = await model.generateContent(prompt)
+                const response = await result.response
+                answer = response.text()
+                break
+            } catch (e: any) {
+                lastError = e
+                if (e.message?.includes('429') || e.message?.includes('quota') || e.message?.includes('rate limit')) {
+                    console.log(`Model ${modelName} hit quota limit for ${bot.name}, trying next model...`)
+                    continue
+                }
+                continue
+            }
+        }
+
+        if (!answer) {
+            return {
+                answer: null,
+                botProfile,
+                error: `Failed to generate answer: ${lastError?.message || 'Unknown error'}`
+            }
+        }
+
+        // Save answer to database
+        const savedAnswer = await db.createAnswer(questionId, botProfile.id, answer)
+
+        return { answer: savedAnswer, botProfile }
+    } catch (error: any) {
+        console.error(`Error generating answer for ${bot.name}:`, error)
+        return { answer: null, botProfile: null, error: error.message }
+    }
+}
+
+// POST /api/ask - Generate answers from multiple bots and save to database
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
         const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl } = req.body
@@ -135,80 +334,52 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             return res.status(500).json({ error: 'Failed to save question to database' })
         }
 
-        // Replace placeholders in prompt template
-        const sassValue = Number.isFinite(Number(sassLevel)) ? Number(sassLevel) : 50
-        const prompt = `${buildSystemInstruction(sassValue)}\n\nQuestion: ${question.trim()}`
+        // Generate answers from all bots in parallel
+        const botAnswers = await Promise.allSettled(
+            BOT_PERSONALITIES.map(bot => generateBotAnswer(bot, question.trim(), savedQuestion.id))
+        )
 
-        // Initialize Gemini
-        const genAI = new GoogleGenerativeAI(config.apiKey)
+        // Process results
+        const answers: Array<{
+            answer: db.Answer
+            botProfile: db.Profile
+            botName: string
+            botId: string
+        }> = []
 
-        // Use gemini-2.0-flash (latest model) or fallback to others if quota exceeded
-        const modelsToTry = [
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-2.0-flash-lite'
-        ]
-        let lastError: any = null
-        let answer: string | null = null
-
-        // Try each model until one works
-        for (const modelName of modelsToTry) {
-            try {
-                const model = genAI.getGenerativeModel({ model: modelName })
-
-                // Generate response
-                const result = await model.generateContent(prompt)
-                const response = await result.response
-                answer = response.text()
-
-                // Success! Break out of the loop
-                break
-            } catch (e: any) {
-                lastError = e
-                // If it's a quota/rate limit error, try the next model
-                if (e.message?.includes('429') || e.message?.includes('quota') || e.message?.includes('rate limit')) {
-                    console.log(`Model ${modelName} hit quota limit, trying next model...`)
-                    continue
-                }
-                // For other errors, also try next model
-                continue
+        botAnswers.forEach((result, index) => {
+            if (result.status === 'fulfilled' && result.value.answer && result.value.botProfile) {
+                answers.push({
+                    answer: result.value.answer,
+                    botProfile: result.value.botProfile,
+                    botName: BOT_PERSONALITIES[index].name,
+                    botId: BOT_PERSONALITIES[index].id
+                })
+            } else {
+                console.error(`Failed to generate answer for ${BOT_PERSONALITIES[index].name}:`, result.status === 'rejected' ? result.reason : result.value.error)
             }
-        }
-
-        if (!answer) {
-            throw new Error(`All models failed. Last error: ${lastError?.message || 'Unknown error'}. ${lastError?.message?.includes('quota') ? 'Your API key has exceeded its quota. Please wait or use a different API key.' : 'Please check your API key has access to Gemini models.'}`)
-        }
-
-        const aiUserId = process.env.AI_USER_ID || questionUserId
-        const aiProfileId = await ensureUserProfile({
-            userId: aiUserId,
-            username: 'ai_assistant',
-            avatarUrl: null,
-            isAi: true
         })
 
-        const aiProfile = aiProfileId ? await db.getProfile(aiProfileId) : null
-        if (!aiProfile) {
-            return res.status(500).json({ error: 'Failed to get AI profile' })
+        if (answers.length === 0) {
+            return res.status(500).json({
+                error: 'Failed to generate any answers from bots. Please check your API key and try again.'
+            })
         }
-
-        // Save answer to database
-        const savedAnswer = await db.createAnswer(
-            savedQuestion.id,
-            aiProfile.id,
-            answer
-        )
 
         res.json({
             question: savedQuestion,
-            answer: savedAnswer,
-            answerText: answer,
-            sassLevel: sassLevel || 50,
-            sassLabel: sassLabel || 'Helpful'
+            answers: answers.map(a => ({
+                answer: a.answer,
+                botProfile: a.botProfile,
+                botName: a.botName,
+                botId: a.botId,
+                answerText: a.answer.content
+            })),
+            totalBots: BOT_PERSONALITIES.length,
+            successfulBots: answers.length
         })
     } catch (error: any) {
-        console.error('Error generating answer:', error)
+        console.error('Error generating answers:', error)
         console.error('Full error:', JSON.stringify(error, null, 2))
 
         if (error.message?.includes('API_KEY') || error.message?.includes('401') || error.message?.includes('403')) {
@@ -407,12 +578,26 @@ app.get('/', (req: Request, res: Response) => {
     })
 })
 
+// POST /api/bots/initialize - Manually initialize bot profiles
+app.post('/api/bots/initialize', async (req: Request, res: Response) => {
+    try {
+        await initializeBotProfiles()
+        res.json({
+            message: 'Bot profiles initialization completed',
+            bots: BOT_PERSONALITIES.map(bot => ({ id: bot.id, name: bot.name, username: bot.username }))
+        })
+    } catch (error: any) {
+        console.error('Error initializing bot profiles:', error)
+        res.status(500).json({ error: 'Failed to initialize bot profiles', details: error.message })
+    }
+})
+
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', hasConfig: !!config })
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`)
     if (config?.apiKey) {
         console.log('✅ Gemini API key configured')
@@ -423,7 +608,10 @@ app.listen(PORT, () => {
     // Test Supabase connection
     if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
         console.log('✅ Supabase configured')
+        // Initialize bot profiles after Supabase is confirmed
+        await initializeBotProfiles()
     } else {
         console.log('⚠️  Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env variables')
+        console.log('⚠️  Bot profiles will not be initialized without Supabase')
     }
 })

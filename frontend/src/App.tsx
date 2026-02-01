@@ -1,13 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { supabase } from './lib/supabaseClient'
 import './App.css'
+
+interface BotAnswer {
+  answer: {
+    id: string
+    content: string
+    created_at: string
+  }
+  botProfile: {
+    id: string
+    username: string
+    avatar_url?: string
+  }
+  botName: string
+  botId: string
+  answerText: string
+}
 
 function App() {
   const [question, setQuestion] = useState('')
   const [sass, setSass] = useState(55)
-  const [answer, setAnswer] = useState('')
-  const [upvotes, setUpvotes] = useState(0)
+  const [answers, setAnswers] = useState<BotAnswer[]>([])
+  const [visibleAnswers, setVisibleAnswers] = useState<BotAnswer[]>([])
+  const [upvotes, setUpvotes] = useState<Record<string, number>>({})
   const [isClosed, setIsClosed] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const [authError, setAuthError] = useState('')
@@ -24,17 +43,65 @@ function App() {
     return 'Unhinged'
   }, [sass])
 
+  // Shuffle array function
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+        ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    return shuffled
+  }
+
+  // Reveal answers one by one with delays
   useEffect(() => {
-    if (!answer) return
-    setUpvotes(41)
+    if (answers.length === 0) {
+      setVisibleAnswers([])
+      return
+    }
+
+    // Shuffle answers for random order
+    const shuffled = shuffleArray(answers)
+    setVisibleAnswers([])
+
+    // Reveal answers one by one with staggered delays (2-4 seconds between each)
+    shuffled.forEach((answer, index) => {
+      const delay = index === 0
+        ? 1000 // First answer appears after 1 second
+        : 1000 + (index * 2000) + Math.random() * 2000 // Subsequent answers: 2-4 seconds apart (staggered)
+
+      setTimeout(() => {
+        setVisibleAnswers((prev) => [...prev, answer])
+
+        // Initialize upvote for this answer
+        setUpvotes((prev) => ({
+          ...prev,
+          [answer.answer.id]: 41
+        }))
+      }, delay)
+    })
+  }, [answers])
+
+  // Animate upvotes for visible answers
+  useEffect(() => {
+    if (visibleAnswers.length === 0) return
+
     let ticks = 0
     const id = setInterval(() => {
       ticks += 1
-      setUpvotes((prev: number) => prev + 1)
+      setUpvotes((prev) => {
+        const updated = { ...prev }
+        visibleAnswers.forEach((a) => {
+          if (updated[a.answer.id]) {
+            updated[a.answer.id] = updated[a.answer.id] + 1
+          }
+        })
+        return updated
+      })
       if (ticks >= 3) clearInterval(id)
     }, 1000)
     return () => clearInterval(id)
-  }, [answer])
+  }, [visibleAnswers])
 
   useEffect(() => {
     let isMounted = true
@@ -115,9 +182,10 @@ function App() {
     }
     setIsLoading(true)
     setError('')
-    setAnswer('')
+    setAnswers([])
+    setVisibleAnswers([])
     setIsClosed(false)
-    setUpvotes(0)
+    setUpvotes({})
 
     try {
       const username =
@@ -141,14 +209,40 @@ function App() {
       })
 
       if (!response.ok) {
-        throw new Error('Backend error')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Backend error')
       }
 
-      const data = (await response.json()) as { answerText?: string; answer?: { content?: string } }
-      setAnswer(data.answerText || data.answer?.content || '')
+      const data = (await response.json()) as {
+        answers?: BotAnswer[]
+        answerText?: string
+        answer?: { content?: string }
+      }
+
+      // Handle new format with multiple answers
+      if (data.answers && Array.isArray(data.answers)) {
+        setAnswers(data.answers)
+      } else if (data.answerText || data.answer?.content) {
+        // Fallback for old format (shouldn't happen but just in case)
+        setAnswers([{
+          answer: {
+            id: 'legacy',
+            content: data.answerText || data.answer?.content || '',
+            created_at: new Date().toISOString()
+          },
+          botProfile: {
+            id: 'legacy',
+            username: 'ai_assistant'
+          },
+          botName: 'AI Assistant',
+          botId: 'legacy',
+          answerText: data.answerText || data.answer?.content || ''
+        }])
+      }
+
       setIsClosed(sass >= 65 || trimmed.length < 12)
-    } catch (err) {
-      setError('Backend is judging you silently. Check the server logs.')
+    } catch (err: any) {
+      setError(err.message || 'Backend is judging you silently. Check the server logs.')
     } finally {
       setIsLoading(false)
     }
@@ -217,7 +311,7 @@ function App() {
           <section className="ai-assist-section">
             <h1 className="ai-assist-title">Hey there, what do you want to learn today?</h1>
             <p className="ai-assist-subtitle">
-              Get instant answers with AI Assist, grounded in community-verified knowledge.
+              Get instant answers from multiple AI bots with different personalities - helpful, mean, blunt, and more!
             </p>
             <form className="ai-assist-form" onSubmit={handleSubmit}>
               <div className="input-wrapper">
@@ -249,40 +343,67 @@ function App() {
             </p>
           </section>
 
-          {(answer || error || isLoading) && (
+          {(isLoading || visibleAnswers.length > 0 || answers.length > 0 || error) && (
             <section className="answer-section">
-              <div className="answer-card">
-                <div className="answer-header">
-                  <div className="answer-votes">
-                    <button className="vote-button upvote">▲</button>
-                    <div className="vote-count">{upvotes}</div>
-                    <button className="vote-button downvote">▼</button>
+              {error && (
+                <div className="error-message" style={{ padding: '1rem', color: 'red', marginBottom: '1rem' }}>
+                  {error}
+                </div>
+              )}
+              {isLoading && visibleAnswers.length === 0 && (
+                <div className="answer-card">
+                  <div className="answer-text" style={{ fontStyle: 'italic', color: '#666' }}>
+                    no one has answered.
                   </div>
-                  <div className="answer-content">
-                    {isClosed && (
-                      <div className="closed-banner">Closed as duplicate · See: "RTFM #812"</div>
-                    )}
-                    <div className="answer-text">
-                      {error ||
-                        answer ||
-                        'Thinking. This might take as long as a real Stack Overflow thread.'}
+                </div>
+              )}
+              {visibleAnswers.map((botAnswer) => (
+                <div key={botAnswer.answer.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
+                  <div className="answer-header">
+                    <div className="answer-votes">
+                      <button className="vote-button upvote">▲</button>
+                      <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
+                      <button className="vote-button downvote">▼</button>
                     </div>
-                    <div className="answer-footer">
-                      <div className="answer-author">
-                        <span>Answered by:</span>
-                        <a href="#" className="author-link">overengineered_dev_2009</a>
-                        <span className="author-badge">AI upvoted itself</span>
+                    <div className="answer-content">
+                      {isClosed && (
+                        <div className="closed-banner">Closed as duplicate · See: "RTFM #812"</div>
+                      )}
+                      <div className="answer-text">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {botAnswer.answerText || botAnswer.answer.content}
+                        </ReactMarkdown>
+                      </div>
+                      <div className="answer-footer">
+                        <div className="answer-author">
+                          <span>Answered by:</span>
+                          <a href="#" className="author-link">{botAnswer.botProfile.username}</a>
+                          <span className="author-badge" style={{
+                            marginLeft: '0.5rem',
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: '#e3f2fd',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem'
+                          }}>
+                            {botAnswer.botName}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              ))}
             </section>
           )}
 
           <section className="stats-section">
             <div className="stat-card">
-              <div className="stat-value">{upvotes}</div>
+              <div className="stat-value">
+                {visibleAnswers.length > 0
+                  ? Object.values(upvotes).reduce((sum, val) => sum + val, 0)
+                  : 0
+                }
+              </div>
               <div className="stat-label">Reputation</div>
               <p className="stat-description">Earn reputation by Asking, Answering & Editing.</p>
             </div>
