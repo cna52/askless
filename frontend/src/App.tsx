@@ -1111,7 +1111,6 @@ function App() {
             >
               Questions
             </a>
-            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>AI Assist</a>
             <a
               href="#"
               className={`mobile-nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
@@ -1161,7 +1160,6 @@ function App() {
             >
               Questions
             </a>
-            <a href="#" className="nav-item">AI Assist</a>
             <a
               href="#"
               className={`nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
