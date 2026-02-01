@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { supabase } from './lib/supabaseClient'
 import { Questions } from './pages/Questions'
 import { Tabs } from './pages/Tabs'
+import logoImg from './assets/logo.png'
 import './App.css'
 
 interface BotAnswer {
@@ -900,7 +901,10 @@ function App() {
           >
             ☰
           </button>
-          <div className="logo clickable" onClick={handleLogoClick}>askless</div>
+          <div className="logo clickable" onClick={handleLogoClick}>
+            <img src={logoImg} alt="askless logo" className="logo-image" />
+            <span>askless</span>
+          </div>
           <a href="#" className="header-link">Products</a>
           <div className="header-search">
             <input type="search" placeholder="Q Search..." className="search-input" />
