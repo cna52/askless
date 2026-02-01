@@ -334,7 +334,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 .select('name')
                 .in('id', tagIds)
 
-            
+
             tagNames = selectedTags?.map(t => t.name) || []
             console.log('User selected tags:', tagNames)
         } else {
@@ -738,6 +738,74 @@ app.post('/api/tags', async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('Error creating tag:', error)
         res.status(500).json({ error: 'Failed to create tag' })
+    }
+})
+
+// POST /api/votes - Create or update a vote
+app.post('/api/votes', async (req: Request, res: Response) => {
+    try {
+        const { userId, questionId, answerId, voteType } = req.body
+
+        if (!userId) {
+            return res.status(401).json({ error: 'User is required to vote' })
+        }
+
+        if (!questionId && !answerId) {
+            return res.status(400).json({ error: 'Either questionId or answerId is required' })
+        }
+
+        if (voteType !== 'upvote' && voteType !== 'downvote') {
+            return res.status(400).json({ error: 'voteType must be "upvote" or "downvote"' })
+        }
+
+        const vote = await db.createVote(userId, questionId, answerId, voteType)
+
+        // Get updated vote counts
+        const counts = await db.getVoteCounts(questionId, answerId)
+        const userVote = await db.getUserVote(userId, questionId, answerId)
+
+        res.json({
+            success: true,
+            vote,
+            counts,
+            userVote
+        })
+    } catch (error: any) {
+        console.error('Error creating vote:', error)
+        res.status(500).json({ error: 'Failed to create vote' })
+    }
+})
+
+// GET /api/votes - Get vote counts and user vote for a question or answer
+app.get('/api/votes', async (req: Request, res: Response) => {
+    try {
+        const { questionId, answerId, userId } = req.query
+
+        if (!questionId && !answerId) {
+            return res.status(400).json({ error: 'Either questionId or answerId is required' })
+        }
+
+        const counts = await db.getVoteCounts(
+            questionId as string | undefined,
+            answerId as string | undefined
+        )
+
+        let userVote = null
+        if (userId) {
+            userVote = await db.getUserVote(
+                userId as string,
+                questionId as string | undefined,
+                answerId as string | undefined
+            )
+        }
+
+        res.json({
+            counts,
+            userVote
+        })
+    } catch (error: any) {
+        console.error('Error fetching votes:', error)
+        res.status(500).json({ error: 'Failed to fetch votes' })
     }
 })
 

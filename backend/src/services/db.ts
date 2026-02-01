@@ -47,6 +47,15 @@ export interface Comment {
     parent_id?: string
 }
 
+export interface Vote {
+    id: string
+    created_at: string
+    user_id: string
+    question_id?: string
+    answer_id?: string
+    vote_type: 'upvote' | 'downvote'
+}
+
 // Profile operations
 export async function getProfile(userId: string): Promise<Profile | null> {
     const { data, error } = await supabase
@@ -488,4 +497,129 @@ export async function deleteComment(commentId: string, userId: string): Promise<
     }
 
     return true
+}
+
+// Vote operations
+export async function createVote(
+    userId: string,
+    questionId: string | undefined,
+    answerId: string | undefined,
+    voteType: 'upvote' | 'downvote'
+): Promise<Vote | null> {
+    // Check if user already voted on this item
+    const existingVote = await getUserVote(userId, questionId, answerId)
+
+    if (existingVote) {
+        // If same vote type, remove the vote (toggle off)
+        if (existingVote.vote_type === voteType) {
+            const { error } = await supabase
+                .from('votes')
+                .delete()
+                .eq('id', existingVote.id)
+
+            if (error) {
+                console.error('Error removing vote:', error)
+                return null
+            }
+            return null // Vote removed
+        } else {
+            // If different vote type, update the vote
+            const { data, error } = await supabase
+                .from('votes')
+                .update({ vote_type: voteType })
+                .eq('id', existingVote.id)
+                .select()
+                .single()
+
+            if (error) {
+                console.error('Error updating vote:', error)
+                return null
+            }
+            return data
+        }
+    }
+
+    // Create new vote
+    const { data, error } = await supabase
+        .from('votes')
+        .insert({
+            user_id: userId,
+            question_id: questionId || null,
+            answer_id: answerId || null,
+            vote_type: voteType
+        })
+        .select()
+        .single()
+
+    if (error) {
+        console.error('Error creating vote:', error)
+        if (error.code === '42P01') {
+            console.error('ERROR: votes table does not exist. Please run the migration: backend/migrations/create_votes_table.sql')
+        }
+        return null
+    }
+    return data
+}
+
+export async function getUserVote(
+    userId: string,
+    questionId: string | undefined,
+    answerId: string | undefined
+): Promise<Vote | null> {
+    let query = supabase
+        .from('votes')
+        .select('*')
+        .eq('user_id', userId)
+
+    if (questionId) {
+        query = query.eq('question_id', questionId).is('answer_id', null)
+    } else if (answerId) {
+        query = query.eq('answer_id', answerId).is('question_id', null)
+    } else {
+        return null
+    }
+
+    const { data, error } = await query.single()
+
+    if (error) {
+        if (error.code === 'PGRST116') {
+            return null // No vote found
+        }
+        console.error('Error fetching user vote:', error)
+        return null
+    }
+    return data
+}
+
+export async function getVoteCounts(
+    questionId: string | undefined,
+    answerId: string | undefined
+): Promise<{ upvotes: number; downvotes: number; total: number }> {
+    let query = supabase
+        .from('votes')
+        .select('vote_type')
+
+    if (questionId) {
+        query = query.eq('question_id', questionId).is('answer_id', null)
+    } else if (answerId) {
+        query = query.eq('answer_id', answerId).is('question_id', null)
+    } else {
+        return { upvotes: 0, downvotes: 0, total: 0 }
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+        console.error('Error fetching vote counts:', error)
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+            console.error('ERROR: votes table does not exist. Please run the migration: backend/migrations/create_votes_table.sql')
+        }
+        return { upvotes: 0, downvotes: 0, total: 0 }
+    }
+
+    const upvotes = data?.filter(v => v.vote_type === 'upvote').length || 0
+    const downvotes = data?.filter(v => v.vote_type === 'downvote').length || 0
+    const total = upvotes - downvotes
+
+    return { upvotes, downvotes, total }
 }

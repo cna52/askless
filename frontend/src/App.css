@@ -572,6 +572,22 @@
   transition: all 0.2s;
 }
 
+.vote-button.active {
+  background-color: var(--so-blue-light);
+  color: var(--so-blue);
+  border-color: var(--so-blue);
+}
+
+.vote-button.upvote.active {
+  background-color: var(--so-blue-light);
+  color: var(--so-blue);
+}
+
+.vote-button.downvote.active {
+  background-color: #fee;
+  color: #c33;
+}
+
 .vote-button:hover {
   background: var(--so-blue-light);
   border-color: var(--so-blue);

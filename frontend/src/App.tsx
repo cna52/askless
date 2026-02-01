@@ -91,6 +91,8 @@ function App() {
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
+  const [voteCounts, setVoteCounts] = useState<Record<string, { upvotes: number; downvotes: number; total: number }>>({})
+  const [userVotes, setUserVotes] = useState<Record<string, 'upvote' | 'downvote' | null>>({})
   const [duplicateNotice, setDuplicateNotice] = useState('')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
@@ -148,6 +150,89 @@ function App() {
     }
   }, [apiBase])
 
+  const loadVoteCounts = useCallback(async (questionId?: string, answerId?: string) => {
+    if (!questionId && !answerId) return
+
+    try {
+      const params = new URLSearchParams()
+      if (questionId) params.append('questionId', questionId)
+      if (answerId) params.append('answerId', answerId)
+      if (user) params.append('userId', user.id)
+
+      const response = await fetch(`${apiBase}/api/votes?${params.toString()}`)
+      if (response.ok) {
+        const data = await response.json()
+        const key = questionId || answerId || ''
+        setVoteCounts(prev => ({
+          ...prev,
+          [key]: data.counts
+        }))
+        if (data.userVote) {
+          setUserVotes(prev => ({
+            ...prev,
+            [key]: data.userVote.vote_type
+          }))
+        } else {
+          setUserVotes(prev => ({
+            ...prev,
+            [key]: null
+          }))
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load vote counts:', err)
+    }
+  }, [apiBase, user])
+
+  const handleVote = useCallback(async (questionId?: string, answerId?: string, voteType: 'upvote' | 'downvote' = 'upvote') => {
+    if (!user) {
+      setError('Please sign in to vote.')
+      return
+    }
+
+    if (!questionId && !answerId) return
+
+    try {
+      const response = await fetch(`${apiBase}/api/votes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          questionId,
+          answerId,
+          voteType
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to vote')
+      }
+
+      const data = await response.json()
+      const key = questionId || answerId || ''
+
+      setVoteCounts(prev => ({
+        ...prev,
+        [key]: data.counts
+      }))
+
+      if (data.userVote) {
+        setUserVotes(prev => ({
+          ...prev,
+          [key]: data.userVote.vote_type
+        }))
+      } else {
+        setUserVotes(prev => ({
+          ...prev,
+          [key]: null
+        }))
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to vote.')
+    }
+  }, [apiBase, user])
+
   // Shuffle array function
   const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array]
@@ -201,6 +286,8 @@ function App() {
 
         // Load comments when answer becomes visible
         loadComments(answer.answer.id)
+        // Load vote counts for the answer
+        loadVoteCounts(undefined, answer.answer.id)
       }, delay)
 
       timeoutIds.push(timeoutId)
@@ -237,13 +324,15 @@ function App() {
   useEffect(() => {
     if (view === 'question' && currentQuestion) {
       loadQuestionComments(currentQuestion.id)
+      loadVoteCounts(currentQuestion.id)
       if (visibleAnswers.length > 0) {
         visibleAnswers.forEach(answer => {
           loadComments(answer.answer.id)
+          loadVoteCounts(undefined, answer.answer.id)
         })
       }
     }
-  }, [view, visibleAnswers, loadComments, currentQuestion, loadQuestionComments])
+  }, [view, visibleAnswers, loadComments, currentQuestion, loadQuestionComments, loadVoteCounts])
 
   const loadUserProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
@@ -276,6 +365,8 @@ function App() {
       setVisibleAnswers([])
       setComments({})
       setUpvotes({})
+      setVoteCounts({})
+      setUserVotes({})
       const response = await fetch(`${apiBase}/api/questions/${questionId}`)
       if (response.ok) {
         const question = await response.json()
@@ -312,6 +403,12 @@ function App() {
           loadQuestionComments(questionId)
           botAnswers.forEach((botAnswer: BotAnswer) => {
             loadComments(botAnswer.answer.id)
+          })
+
+          // Load vote counts for question and answers
+          loadVoteCounts(questionId)
+          botAnswers.forEach((botAnswer: BotAnswer) => {
+            loadVoteCounts(undefined, botAnswer.answer.id)
           })
         }
       } else {
@@ -553,10 +650,12 @@ function App() {
         // Load question comments and comments for all answers
         if (data.question) {
           loadQuestionComments(data.question.id)
+          loadVoteCounts(data.question.id)
         }
         if (data.answers) {
           data.answers.forEach(a => {
             loadComments(a.answer.id)
+            loadVoteCounts(undefined, a.answer.id)
           })
         }
       } else if (data.answers && Array.isArray(data.answers)) {
@@ -1161,9 +1260,19 @@ function App() {
 
                     <div className="question-content-card">
                       <div className="question-votes">
-                        <button className="vote-button upvote">▲</button>
-                        <div className="vote-count">0</div>
-                        <button className="vote-button downvote">▼</button>
+                        <button
+                          className={`vote-button upvote ${userVotes[question.id] === 'upvote' ? 'active' : ''}`}
+                          onClick={() => handleVote(question.id, undefined, 'upvote')}
+                        >
+                          ▲
+                        </button>
+                        <div className="vote-count">{voteCounts[question.id]?.total ?? 0}</div>
+                        <button
+                          className={`vote-button downvote ${userVotes[question.id] === 'downvote' ? 'active' : ''}`}
+                          onClick={() => handleVote(question.id, undefined, 'downvote')}
+                        >
+                          ▼
+                        </button>
                       </div>
                       <div className="question-body">
                         <div className="question-text">
@@ -1222,9 +1331,19 @@ function App() {
                               <div className="answer-card" style={{ marginBottom: '1.5rem' }}>
                                 <div className="answer-header">
                                   <div className="answer-votes">
-                                    <button className="vote-button upvote">▲</button>
-                                    <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
-                                    <button className="vote-button downvote">▼</button>
+                                    <button
+                                      className={`vote-button upvote ${userVotes[botAnswer.answer.id] === 'upvote' ? 'active' : ''}`}
+                                      onClick={() => handleVote(undefined, botAnswer.answer.id, 'upvote')}
+                                    >
+                                      ▲
+                                    </button>
+                                    <div className="vote-count">{voteCounts[botAnswer.answer.id]?.total ?? (upvotes[botAnswer.answer.id] || 0)}</div>
+                                    <button
+                                      className={`vote-button downvote ${userVotes[botAnswer.answer.id] === 'downvote' ? 'active' : ''}`}
+                                      onClick={() => handleVote(undefined, botAnswer.answer.id, 'downvote')}
+                                    >
+                                      ▼
+                                    </button>
                                   </div>
                                   <div className="answer-content">
                                     <div className="answer-text">
@@ -1456,9 +1575,23 @@ function App() {
                         <div key={comment.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
                           <div className="answer-header">
                             <div className="answer-votes">
-                              <button className="vote-button upvote">▲</button>
+                              <button
+                                className="vote-button upvote"
+                                disabled
+                                title="Voting on question comments is not yet supported"
+                                style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                              >
+                                ▲
+                              </button>
                               <div className="vote-count">0</div>
-                              <button className="vote-button downvote">▼</button>
+                              <button
+                                className="vote-button downvote"
+                                disabled
+                                title="Voting on question comments is not yet supported"
+                                style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                              >
+                                ▼
+                              </button>
                             </div>
                             <div className="answer-content">
                               <div className="answer-text">
