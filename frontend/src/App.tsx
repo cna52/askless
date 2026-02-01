@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { supabase } from './lib/supabaseClient'
+import { Questions } from './pages/Questions'
 import './App.css'
 
 interface BotAnswer {
@@ -69,7 +70,8 @@ interface UserStats {
 }
 
 function App() {
-  const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions'>('home')
+  const [view, setView] = useState<'ask' | 'question'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [userActivity, setUserActivity] = useState<UserActivity | null>(null)
@@ -661,8 +663,26 @@ function App() {
       <div className="main-layout">
         <aside className="left-sidebar">
           <nav className="sidebar-nav">
-            <a href="#" className="nav-item active">Home</a>
-            <a href="#" className="nav-item">Questions</a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'home' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('home')
+              }}
+            >
+              Home
+            </a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'questions' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('questions')
+              }}
+            >
+              Questions
+            </a>
             <a href="#" className="nav-item">AI Assist</a>
             <a href="#" className="nav-item">Tags</a>
             <a href="#" className="nav-item">Saves</a>
@@ -676,188 +696,9 @@ function App() {
         </aside>
 
         <main className="content-area">
-          {view === 'profile' ? (
-            <section className="profile-section">
-              {profileLoading ? (
-                <div className="profile-loading">Loading profile...</div>
-              ) : userProfile ? (
-                <>
-                  <div className="profile-header">
-                    <div className="profile-avatar">
-                      {userProfile.avatar_url ? (
-                        <img src={userProfile.avatar_url} alt={userProfile.username} />
-                      ) : (
-                        <div className="avatar-placeholder">
-                          {userProfile.username.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <div className="profile-info">
-                      <h1 className="profile-name">{userProfile.username}</h1>
-                      <div className="profile-meta">
-                        <span className="profile-meta-item">
-                          🎂 Member for {user ? Math.floor((Date.now() - new Date(user.created_at || Date.now()).getTime()) / (1000 * 60 * 60 * 24)) : 0} days
-                        </span>
-                        <span className="profile-meta-item">
-                          👁️ Last seen this week
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="profile-tabs">
-                    <button
-                      className={`profile-tab ${activeProfileTab === 'summary' ? 'active' : ''}`}
-                      onClick={() => setActiveProfileTab('summary')}
-                    >
-                      Profile
-                    </button>
-                    <button
-                      className={`profile-tab ${activeProfileTab === 'questions' ? 'active' : ''}`}
-                      onClick={() => setActiveProfileTab('questions')}
-                    >
-                      Activity
-                    </button>
-                    <button
-                      className={`profile-tab ${activeProfileTab === 'answers' ? 'active' : ''}`}
-                      onClick={() => setActiveProfileTab('answers')}
-                    >
-                      Answers
-                    </button>
-                  </div>
-
-                  <div className="profile-content">
-                    {activeProfileTab === 'summary' && (
-                      <div className="profile-summary">
-                        <div className="profile-stats-grid">
-                          <div className="profile-stat-card">
-                            <div className="profile-stat-value">{userStats?.questionsCount || 0}</div>
-                            <div className="profile-stat-label">Questions</div>
-                          </div>
-                          <div className="profile-stat-card">
-                            <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
-                            <div className="profile-stat-label">Answers</div>
-                          </div>
-                        </div>
-                        <div className="profile-summary-box">
-                          <div className="profile-summary-icon">📊</div>
-                          <h3>Reputation is how the community thanks you</h3>
-                          <p>When users upvote your helpful posts, you'll earn reputation and unlock new privileges.</p>
-                          <p className="profile-summary-link">
-                            Learn more about <a href="#">reputation</a> and <a href="#">privileges</a>
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {activeProfileTab === 'questions' && (
-                      <div className="profile-activity">
-                        <h2 className="profile-activity-title">Questions ({userActivity?.questions.length || 0})</h2>
-                        {userActivity?.questions.length === 0 ? (
-                          <div className="profile-empty">No questions yet.</div>
-                        ) : (
-                          <div className="profile-activity-list">
-                            {userActivity?.questions.map(question => (
-                              <div key={question.id} className="profile-activity-item">
-                                <h3 className="profile-activity-item-title">
-                                  <a
-                                    href="#"
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      setCurrentQuestion(question)
-                                      setView('question')
-                                      // Load answers for this question
-                                      fetch(`${apiBase}/api/questions/${question.id}/answers`)
-                                        .then(res => res.json())
-                                        .then(answers => {
-                                          // Transform answers to match BotAnswer format
-                                          Promise.all(answers.map(async (answer: any) => {
-                                            const profile = await fetch(`${apiBase}/api/users/${answer.user_id}/profile`)
-                                              .then(res => res.json())
-                                              .catch(() => null)
-                                            return {
-                                              answer: {
-                                                id: answer.id,
-                                                content: answer.content,
-                                                created_at: answer.created_at
-                                              },
-                                              botProfile: profile?.profile || {
-                                                id: answer.user_id,
-                                                username: 'Unknown'
-                                              },
-                                              botName: profile?.profile?.is_ai ? 'AI Assistant' : 'User',
-                                              botId: answer.user_id,
-                                              answerText: answer.content
-                                            }
-                                          })).then(botAnswers => {
-                                            setAnswers(botAnswers)
-                                          })
-                                        })
-                                    }}
-                                  >
-                                    {question.title}
-                                  </a>
-                                </h3>
-                                <div className="profile-activity-item-meta">
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                    {question.tags && question.tags.length > 0 && (
-                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                        {question.tags.map((tag: any) => (
-                                          <span key={tag.id || tag.name} className="tag" style={{
-                                            background: 'var(--so-blue-light)',
-                                            color: 'var(--so-blue)',
-                                            padding: '4px 8px',
-                                            borderRadius: '3px',
-                                            fontSize: '12px'
-                                          }}>
-                                            {tag.name || tag}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
-                                      {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
-                                    </span>
-                                    <span>{new Date(question.created_at).toLocaleDateString()}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {activeProfileTab === 'answers' && (
-                      <div className="profile-activity">
-                        <h2 className="profile-activity-title">Answers ({userActivity?.answers.length || 0})</h2>
-                        {userActivity?.answers.length === 0 ? (
-                          <div className="profile-empty">No answers yet.</div>
-                        ) : (
-                          <div className="profile-activity-list">
-                            {userActivity?.answers.map(answer => (
-                              <div key={answer.id} className="profile-activity-item">
-                                <div className="profile-activity-item-content">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {answer.content.substring(0, 200) + '...'}
-                                  </ReactMarkdown>
-                                </div>
-                                <div className="profile-activity-item-meta">
-                                  <span>{new Date(answer.created_at).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="profile-error">Profile not found</div>
-              )}
-            </section>
-          ) : view === 'ask' ? (
+          {currentPage === 'home' ? (
+            <>
+              {view === 'ask' ? (
             <section className="question-form-section">
               <h1 className="question-form-title">Ask a question</h1>
               <form className="question-form" onSubmit={handleSubmit}>
@@ -1477,6 +1318,10 @@ function App() {
               <button className="stat-button">Customize your feed</button>
             </div>
           </section>
+            </>
+          ) : (
+            <Questions />
+          )}
         </main>
 
         <aside className="right-sidebar">
