@@ -105,6 +105,7 @@ function App() {
   const [voteCounts, setVoteCounts] = useState<Record<string, { upvotes: number; downvotes: number; total: number }>>({})
   const [userVotes, setUserVotes] = useState<Record<string, 'upvote' | 'downvote' | null>>({})
   const [duplicateNotice, setDuplicateNotice] = useState('')
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
     'tried': false,
@@ -762,7 +763,9 @@ function App() {
         setBody('')
         setTags('')
         setSelectedTags([])
-        window.location.hash = `#questions/${data.originalQuestion.id}`
+        setShowDuplicateModal(true)
+        setCurrentPage('questions')
+        window.location.hash = '#questions'
         setDuplicateNotice(
           [data.message, data.environmentMessage].filter(Boolean).join(' ')
         )
@@ -1061,6 +1064,29 @@ function App() {
           <div className="header-icon">❓</div>
         </div>
       </header>
+
+      {showDuplicateModal && (
+        <div className="duplicate-modal-overlay" onClick={() => setShowDuplicateModal(false)}>
+          <div className="duplicate-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="duplicate-modal-title">Seriously?</div>
+            <div className="duplicate-modal-body">
+              You’re asking a question that’s already been answered. Try reading existing posts before adding noise.
+            </div>
+            {duplicateNotice && (
+              <div className="duplicate-modal-note">{duplicateNotice}</div>
+            )}
+            <div className="duplicate-modal-actions">
+              <button
+                type="button"
+                className="duplicate-modal-button"
+                onClick={() => setShowDuplicateModal(false)}
+              >
+                Fine
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
