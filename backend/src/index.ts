@@ -302,7 +302,6 @@ async function generateBotAnswer(
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
         const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl } = req.body
-
         if (!question || typeof question !== 'string' || question.trim() === '') {
             return res.status(400).json({ error: 'Question is required' })
         }
@@ -325,10 +324,22 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         }
         const questionTitle = title || question.substring(0, 100)
 
-        // 🌱 SUSTAINABLE FEATURE: Generate tags and check for duplicates
-        console.log('🏷️ Generating tags...')
-        const tagNames = await generateTags(questionTitle, question.trim(), config.apiKey)
-        console.log('Generated tags:', tagNames)
+        // 🌱 SUSTAINABLE FEATURE: Get tag names from user-provided tag IDs
+        console.log('🏷️ Getting tags from user selection...')
+        let tagNames: string[] = []
+
+        if (tagIds && tagIds.length > 0) {
+            // Get tag names from IDs
+            const { data: selectedTags } = await supabase
+                .from('tags')
+                .select('name')
+                .in('id', tagIds)
+            
+            tagNames = selectedTags?.map(t => t.name) || []
+            console.log('User selected tags:', tagNames)
+        } else {
+            console.log('No tags selected by user')
+        }
 
         // Search for similar questions
         console.log('🔍 Searching for similar questions...')
