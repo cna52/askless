@@ -71,6 +71,19 @@
   color: var(--so-text-muted);
 }
 
+.tabs-loading,
+.tabs-error,
+.tabs-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--so-text-muted);
+  font-size: 14px;
+}
+
+.tabs-error {
+  color: #d32f2f;
+}
+
 @media (max-width: 720px) {
   .tabs-grid {
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

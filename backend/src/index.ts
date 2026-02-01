@@ -759,6 +759,33 @@ app.get('/api/tags', async (req: Request, res: Response) => {
     }
 })
 
+// GET /api/tags/with-counts - Get all tags with question counts
+app.get('/api/tags/with-counts', async (req: Request, res: Response) => {
+    try {
+        const tags = await db.getTagsWithCounts()
+        res.json(tags)
+    } catch (error: any) {
+        console.error('Error fetching tags with counts:', error)
+        res.status(500).json({ error: 'Failed to fetch tags with counts' })
+    }
+})
+
+// GET /api/tags/:tagId/questions - Get questions by tag
+app.get('/api/tags/:tagId/questions', async (req: Request, res: Response) => {
+    try {
+        const tagId = parseInt(req.params.tagId)
+        if (isNaN(tagId)) {
+            return res.status(400).json({ error: 'Invalid tag ID' })
+        }
+
+        const questions = await db.getQuestionsByTag(tagId)
+        res.json(questions)
+    } catch (error: any) {
+        console.error('Error fetching questions by tag:', error)
+        res.status(500).json({ error: 'Failed to fetch questions by tag' })
+    }
+})
+
 // POST /api/tags
 app.post('/api/tags', async (req: Request, res: Response) => {
     try {

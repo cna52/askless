@@ -1055,7 +1055,7 @@ function App() {
             </button>
           )}
           {authError && <span className="auth-error">{authError}</span>}
-          
+
         </div>
       </header>
 
@@ -1185,7 +1185,7 @@ function App() {
           {currentPage === 'questions' ? (
             <Questions onSelectQuestion={handleSelectQuestion} />
           ) : currentPage === 'tabs' ? (
-            <Tabs />
+            <Tabs onSelectQuestion={handleSelectQuestion} />
           ) : (
             <>
               {view === 'profile' ? (
