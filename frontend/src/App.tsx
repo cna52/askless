@@ -1029,7 +1029,7 @@ function App() {
           </button>
           <div className="logo clickable" onClick={handleLogoClick}>
             <img src={logoImg} alt="askless logo" className="logo-image" />
-            <span>askless</span>
+            <span><span style={{ color: 'gray' }}>ask</span><strong>less</strong></span>
           </div>
           <a href="#" className="header-link">Products</a>
           <div className="header-search">
@@ -2143,7 +2143,17 @@ function App() {
             </>
           ) : (
             <>
-              <button className="ask-question-btn">Ask Question</button>
+              <button
+                className="ask-question-btn"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setCurrentPage('home')
+                  setView('ask')
+                  window.location.hash = '#'
+                }}
+              >
+                Ask Question
+              </button>
               <div className="sidebar-widget">
                 <h3 className="widget-title">The Overflow Blog</h3>
                 <ul className="widget-list">
