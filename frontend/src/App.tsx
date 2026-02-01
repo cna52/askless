@@ -44,7 +44,7 @@ interface Comment {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question'>('home')
   const [view, setView] = useState<'ask' | 'question'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [title, setTitle] = useState('')
@@ -91,13 +91,19 @@ function App() {
     }
   }, [apiBase])
 
-  const handleSelectQuestion = useCallback(async (questionId: string) => {
+  const handleSelectQuestion = useCallback((question: Question | string) => {
+    const questionId = typeof question === 'string' ? question : question.id
+    if (!questionId) return
+    window.location.hash = `#/questions/${questionId}`
+  }, [])
+
+  const loadQuestionById = useCallback(async (questionId: string) => {
     try {
       setError('')
       setDuplicateNotice('')
       setIsClosed(false)
       setIsLoading(true)
-      setCurrentPage('home')
+      setCurrentPage('question')
       setView('question')
       setCurrentQuestion(null)
       setAnswers([])
@@ -178,6 +184,29 @@ function App() {
       setIsLoading(false)
     }
   }, [apiBase, loadComments])
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash || ''
+      if (hash.startsWith('#/questions/')) {
+        const id = hash.replace('#/questions/', '').trim()
+        if (id) {
+          loadQuestionById(id)
+        }
+        return
+      }
+      if (hash === '#/questions') {
+        setCurrentPage('questions')
+        return
+      }
+      setCurrentPage('home')
+      setView('ask')
+    }
+
+    handleHashChange()
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [loadQuestionById])
 
   // Shuffle array function
   const shuffleArray = <T,>(array: T[]): T[] => {
@@ -553,21 +582,21 @@ function App() {
         <aside className="left-sidebar">
           <nav className="sidebar-nav">
             <a
-              href="#"
+              href="#/"
               className={`nav-item ${currentPage === 'home' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('home')
+                window.location.hash = '#/'
               }}
             >
               Home
             </a>
             <a
-              href="#"
+              href="#/questions"
               className={`nav-item ${currentPage === 'questions' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('questions')
+                window.location.hash = '#/questions'
               }}
             >
               Questions
@@ -585,7 +614,9 @@ function App() {
         </aside>
 
         <main className="content-area">
-          {currentPage === 'home' ? (
+          {currentPage === 'questions' ? (
+            <Questions onSelectQuestion={handleSelectQuestion} />
+          ) : (
             <>
               {view === 'ask' ? (
             <section className="question-form-section">
@@ -713,11 +744,7 @@ function App() {
                 <button
                   className="ask-question-link"
                   onClick={() => {
-                    setView('ask')
-                    setCurrentQuestion(null)
-                    setAnswers([])
-                    setVisibleAnswers([])
-                    setComments({})
+                    window.location.hash = '#/'
                   }}
                 >
                   Ask Question
@@ -903,7 +930,11 @@ function App() {
                 })}
               </div>
             </section>
-          ) : null}
+          ) : (
+            <section className="question-detail-section">
+              <div className="questions-loading">Loading question...</div>
+            </section>
+          )}
 
           {(isLoading || visibleAnswers.length > 0 || answers.length > 0 || error) && (
             <section className="answer-section">
@@ -984,8 +1015,6 @@ function App() {
             </div>
           </section>
             </>
-          ) : (
-            <Questions onSelectQuestion={handleSelectQuestion} />
           )}
         </main>
 
