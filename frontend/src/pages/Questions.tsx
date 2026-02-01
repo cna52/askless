@@ -101,6 +101,24 @@ export function Questions({ onSelectQuestion }: { onSelectQuestion?: (questionId
           answerCountMap.set(id, (answerCountMap.get(id) || 0) + 1)
         })
 
+        // Fetch votes for these questions and compute totals
+        const { data: votesData, error: votesError } = await supabase
+          .from('votes')
+          .select('question_id, vote_type')
+          .in('question_id', questionIds)
+
+        if (votesError) {
+          console.warn('Error fetching votes:', votesError)
+        }
+
+        const voteTotalMap = new Map<string, number>()
+        votesData?.forEach((vote: any) => {
+          const id = vote.question_id
+          if (!id) return
+          const delta = vote.vote_type === 'downvote' ? -1 : 1
+          voteTotalMap.set(id, (voteTotalMap.get(id) || 0) + delta)
+        })
+
         // Transform the data to match our Question interface
         const transformedQuestions: Question[] = questionsData.map((q: any) => ({
           id: q.id,
@@ -111,7 +129,7 @@ export function Questions({ onSelectQuestion }: { onSelectQuestion?: (questionId
           author: profileMap.get(q.user_id) || 'Anonymous',
           answers: answerCountMap.get(q.id) || 0,
           views: Math.floor(Math.random() * 2000) + 100, // Placeholder - not in schema
-          votes: Math.floor(Math.random() * 200), // Placeholder - not in schema
+          votes: voteTotalMap.get(q.id) || 0,
           tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || [],
           created: formatRelativeTime(q.created_at),
         }))
