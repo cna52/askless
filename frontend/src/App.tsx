@@ -77,7 +77,11 @@ function App() {
   const [userActivity, setUserActivity] = useState<UserActivity | null>(null)
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
+<<<<<<< HEAD
   const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers'>('summary')
+=======
+  const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers' | 'comments'>('summary')
+>>>>>>> e6c7c7c (feat: add a profile page)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [tags, setTags] = useState('')
@@ -219,6 +223,25 @@ function App() {
       }
     }
   }, [view, visibleAnswers, loadComments, currentQuestion, loadQuestionComments])
+
+  const loadUserProfile = useCallback(async (userId: string) => {
+    setProfileLoading(true)
+    try {
+      const response = await fetch(`${apiBase}/api/users/${userId}/profile`)
+      if (response.ok) {
+        const data = await response.json()
+        setUserProfile(data.profile)
+        setUserActivity(data.activity)
+        setUserStats(data.stats)
+      } else {
+        console.error('Failed to load user profile')
+      }
+    } catch (err) {
+      console.error('Failed to load user profile:', err)
+    } finally {
+      setProfileLoading(false)
+    }
+  }, [apiBase])
 
   const loadUserProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
@@ -699,6 +722,214 @@ function App() {
           {currentPage === 'home' ? (
             <>
               {view === 'ask' ? (
+          {view === 'profile' ? (
+            <section className="profile-section">
+              {profileLoading ? (
+                <div className="profile-loading">Loading profile...</div>
+              ) : userProfile ? (
+                <>
+                  <div className="profile-header">
+                    <div className="profile-avatar">
+                      {userProfile.avatar_url ? (
+                        <img src={userProfile.avatar_url} alt={userProfile.username} />
+                      ) : (
+                        <div className="avatar-placeholder">
+                          {userProfile.username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="profile-info">
+                      <h1 className="profile-name">{userProfile.username}</h1>
+                      <div className="profile-meta">
+                        <span className="profile-meta-item">
+                          🎂 Member for {user ? Math.floor((Date.now() - new Date(user.created_at || Date.now()).getTime()) / (1000 * 60 * 60 * 24)) : 0} days
+                        </span>
+                        <span className="profile-meta-item">
+                          👁️ Last seen this week
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      className="ask-question-link"
+                      onClick={() => {
+                        setView('ask')
+                        setCurrentQuestion(null)
+                        setAnswers([])
+                        setVisibleAnswers([])
+                        setComments({})
+                      }}
+                    >
+                      Ask Question
+                    </button>
+                  </div>
+
+                  <div className="profile-tabs">
+                    <button
+                      className={`profile-tab ${activeProfileTab === 'summary' ? 'active' : ''}`}
+                      onClick={() => setActiveProfileTab('summary')}
+                    >
+                      Profile
+                    </button>
+                    <button
+                      className={`profile-tab ${activeProfileTab === 'questions' ? 'active' : ''}`}
+                      onClick={() => setActiveProfileTab('questions')}
+                    >
+                      Activity
+                    </button>
+                    <button
+                      className={`profile-tab ${activeProfileTab === 'answers' ? 'active' : ''}`}
+                      onClick={() => setActiveProfileTab('answers')}
+                    >
+                      Answers
+                    </button>
+                    <button
+                      className={`profile-tab ${activeProfileTab === 'comments' ? 'active' : ''}`}
+                      onClick={() => setActiveProfileTab('comments')}
+                    >
+                      Comments
+                    </button>
+                  </div>
+
+                  <div className="profile-content">
+                    {activeProfileTab === 'summary' && (
+                      <div className="profile-summary">
+                        <div className="profile-stats-grid">
+                          <div className="profile-stat-card">
+                            <div className="profile-stat-value">{userStats?.questionsCount || 0}</div>
+                            <div className="profile-stat-label">Questions</div>
+                          </div>
+                          <div className="profile-stat-card">
+                            <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
+                            <div className="profile-stat-label">Answers</div>
+                          </div>
+                          <div className="profile-stat-card">
+                            <div className="profile-stat-value">{userStats?.commentsCount || 0}</div>
+                            <div className="profile-stat-label">Comments</div>
+                          </div>
+                        </div>
+                        <div className="profile-summary-box">
+                          <div className="profile-summary-icon">📊</div>
+                          <h3>Reputation is how the community thanks you</h3>
+                          <p>When users upvote your helpful posts, you'll earn reputation and unlock new privileges.</p>
+                          <p className="profile-summary-link">
+                            Learn more about <a href="#">reputation</a> and <a href="#">privileges</a>
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeProfileTab === 'questions' && (
+                      <div className="profile-activity">
+                        <h2 className="profile-activity-title">Questions ({userActivity?.questions.length || 0})</h2>
+                        {userActivity?.questions.length === 0 ? (
+                          <div className="profile-empty">No questions yet.</div>
+                        ) : (
+                          <div className="profile-activity-list">
+                            {userActivity?.questions.map(question => (
+                              <div key={question.id} className="profile-activity-item">
+                                <h3 className="profile-activity-item-title">
+                                  <a
+                                    href="#"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      setCurrentQuestion(question)
+                                      setView('question')
+                                      // Load answers for this question
+                                      fetch(`${apiBase}/api/questions/${question.id}/answers`)
+                                        .then(res => res.json())
+                                        .then(answers => {
+                                          // Transform answers to match BotAnswer format
+                                          Promise.all(answers.map(async (answer: any) => {
+                                            const profile = await fetch(`${apiBase}/api/users/${answer.user_id}/profile`)
+                                              .then(res => res.json())
+                                              .catch(() => null)
+                                            return {
+                                              answer: {
+                                                id: answer.id,
+                                                content: answer.content,
+                                                created_at: answer.created_at
+                                              },
+                                              botProfile: profile?.profile || {
+                                                id: answer.user_id,
+                                                username: 'Unknown'
+                                              },
+                                              botName: profile?.profile?.is_ai ? 'AI Assistant' : 'User',
+                                              botId: answer.user_id,
+                                              answerText: answer.content
+                                            }
+                                          })).then(botAnswers => {
+                                            setAnswers(botAnswers)
+                                          })
+                                        })
+                                    }}
+                                  >
+                                    {question.title}
+                                  </a>
+                                </h3>
+                                <div className="profile-activity-item-meta">
+                                  <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {activeProfileTab === 'answers' && (
+                      <div className="profile-activity">
+                        <h2 className="profile-activity-title">Answers ({userActivity?.answers.length || 0})</h2>
+                        {userActivity?.answers.length === 0 ? (
+                          <div className="profile-empty">No answers yet.</div>
+                        ) : (
+                          <div className="profile-activity-list">
+                            {userActivity?.answers.map(answer => (
+                              <div key={answer.id} className="profile-activity-item">
+                                <div className="profile-activity-item-content">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {answer.content.substring(0, 200) + '...'}
+                                  </ReactMarkdown>
+                                </div>
+                                <div className="profile-activity-item-meta">
+                                  <span>{new Date(answer.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {activeProfileTab === 'comments' && (
+                      <div className="profile-activity">
+                        <h2 className="profile-activity-title">Comments ({userActivity?.comments.length || 0})</h2>
+                        {userActivity?.comments.length === 0 ? (
+                          <div className="profile-empty">No comments yet.</div>
+                        ) : (
+                          <div className="profile-activity-list">
+                            {userActivity?.comments.map(comment => (
+                              <div key={comment.id} className="profile-activity-item">
+                                <div className="profile-activity-item-content">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {comment.content}
+                                  </ReactMarkdown>
+                                </div>
+                                <div className="profile-activity-item-meta">
+                                  <span>{new Date(comment.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="profile-error">Profile not found</div>
+              )}
+            </section>
+          ) : view === 'ask' ? (
             <section className="question-form-section">
               <h1 className="question-form-title">Ask a question</h1>
               <form className="question-form" onSubmit={handleSubmit}>

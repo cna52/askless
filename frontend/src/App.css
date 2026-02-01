@@ -1206,7 +1206,6 @@
   flex-shrink: 0;
 }
 
-<<<<<<< HEAD
 /* Profile Screen Styles */
 .profile-section {
   background: var(--so-bg);
@@ -1472,6 +1471,7 @@
   color: var(--so-blue);
 }
 
+<<<<<<< HEAD
 @media (max-width: 640px) {
   .left-sidebar {
     display: none;
