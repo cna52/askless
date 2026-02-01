@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { supabase } from './lib/supabaseClient'
 import { Questions } from './pages/Questions'
+import { Tabs } from './pages/Tabs'
 import './App.css'
 
 interface BotAnswer {
@@ -71,7 +72,7 @@ interface UserStats {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tabs'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -435,6 +436,9 @@ function App() {
         loadUserProfile(user.id)
       } else if (hash === '#questions') {
         setCurrentPage('questions')
+        setView('ask')
+      } else if (hash === '#tabs') {
+        setCurrentPage('tabs')
         setView('ask')
       } else if (hash.startsWith('#questions/')) {
         const questionId = hash.replace('#questions/', '')
@@ -961,7 +965,18 @@ function App() {
               Questions
             </a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>AI Assist</a>
-            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Tags</a>
+            <a
+              href="#"
+              className={`mobile-nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('tabs')
+                window.location.hash = '#tabs'
+                setMobileMenuOpen(false)
+              }}
+            >
+              Tabs
+            </a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Saves</a>
             <div className="mobile-nav-divider"></div>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Challenges</a>
@@ -1000,7 +1015,17 @@ function App() {
               Questions
             </a>
             <a href="#" className="nav-item">AI Assist</a>
-            <a href="#" className="nav-item">Tags</a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'tabs' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('tabs')
+                window.location.hash = '#tabs'
+              }}
+            >
+              Tabs
+            </a>
             <a href="#" className="nav-item">Saves</a>
             <div className="nav-divider"></div>
             <a href="#" className="nav-item">Challenges</a>
@@ -1014,6 +1039,8 @@ function App() {
         <main className="content-area">
           {currentPage === 'questions' ? (
             <Questions onSelectQuestion={handleSelectQuestion} />
+          ) : currentPage === 'tabs' ? (
+            <Tabs />
           ) : (
             <>
               {view === 'profile' ? (
