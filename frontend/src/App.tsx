@@ -55,6 +55,7 @@ function App() {
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
   const [isClosed, setIsClosed] = useState(false)
+  const [duplicateNotice, setDuplicateNotice] = useState('')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
     'tried': false,
@@ -65,6 +66,8 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [availableTags, setAvailableTags] = useState<Array<{id: number, name: string}>>([])
+  const [selectedTags, setSelectedTags] = useState<number[]>([])
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:3001'
 
@@ -204,6 +207,14 @@ function App() {
     }
   }, [user])
 
+  // Fetch available tags
+  useEffect(() => {
+    fetch(`${apiBase}/api/tags`)
+      .then(res => res.json())
+      .then(tags => setAvailableTags(tags))
+      .catch(err => console.error('Error fetching tags:', err))
+  }, [apiBase])
+
   const handleLogin = async () => {
     setAuthError('')
     setAuthLoading(true)
@@ -245,6 +256,7 @@ function App() {
     setVisibleAnswers([])
     setIsClosed(false)
     setUpvotes({})
+    setDuplicateNotice('')
 
     try {
       const username =
@@ -254,16 +266,27 @@ function App() {
         user.email?.split('@')[0]
       const avatarUrl = user.user_metadata?.avatar_url || null
 
+      const normalizedTagIds =
+        selectedTags.length > 0
+          ? selectedTags
+          : tags
+              .split(',')
+              .map(tag => tag.trim().toLowerCase())
+              .filter(Boolean)
+              .map(tagName => availableTags.find(tag => tag.name.toLowerCase() === tagName)?.id)
+              .filter((id): id is number => Boolean(id))
+              .slice(0, 5)
+
       const response = await fetch(`${apiBase}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: trimmedBody,
           title: trimmedTitle,
-          tagIds: [], // TODO: Map tag names to IDs
           userId: user.id,
           username,
           avatarUrl,
+          tagIds: normalizedTagIds,
         }),
       })
 
@@ -274,13 +297,26 @@ function App() {
 
       const data = (await response.json()) as {
         question?: Question
+        originalQuestion?: Question
         answers?: BotAnswer[]
         answerText?: string
         answer?: { content?: string }
+        isDuplicate?: boolean
+        message?: string
+        environmentMessage?: string
       }
 
       // If we got a question back, navigate to question view
-      if (data.question) {
+      if (data.isDuplicate && data.originalQuestion) {
+        setCurrentQuestion(data.originalQuestion)
+        if (data.answers && Array.isArray(data.answers)) {
+          setAnswers(data.answers)
+        }
+        setView('question')
+        setDuplicateNotice(
+          [data.message, data.environmentMessage].filter(Boolean).join(' ')
+        )
+      } else if (data.question) {
         setCurrentQuestion(data.question)
         // Handle new format with multiple answers
         if (data.answers && Array.isArray(data.answers)) {
@@ -507,6 +543,39 @@ function App() {
                   />
                 </div>
 
+                <div className="tag-selection-wrapper">
+                  <label className="tag-selection-label">Select tags (up to 5):</label>
+                  <div className="tag-grid">
+                    {availableTags.slice(0, 30).map(tag => (
+                      <label key={tag.id} className="tag-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.includes(tag.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              if (selectedTags.length < 5) {
+                                setSelectedTags([...selectedTags, tag.id])
+                              }
+                            } else {
+                              setSelectedTags(selectedTags.filter(id => id !== tag.id))
+                            }
+                          }}
+                        />
+                        <span className="tag-name">{tag.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedTags.length > 0 && (
+                    <div className="selected-tags">
+                      <strong>Selected:</strong>
+                      {selectedTags.map(id => {
+                        const tag = availableTags.find(t => t.id === id)
+                        return tag ? <span key={id} className="tag-badge">{tag.name}</span> : null
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {error && (
                   <div className="form-error-message">{error}</div>
                 )}
@@ -544,6 +613,9 @@ function App() {
                   Ask Question
                 </button>
               </div>
+              {duplicateNotice && (
+                <div className="closed-banner">{duplicateNotice}</div>
+              )}
 
               <div className="question-content-card">
                 <div className="question-votes">
