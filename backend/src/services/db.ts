@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../lib/supabase.js'
 
 // Types matching your database schema
 export interface Profile {
