@@ -80,7 +80,7 @@ interface CachedQuestion {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tags'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tags' | 'about'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -350,7 +350,7 @@ function App() {
     return shuffled
   }
 
-  // Reveal answers one by one with delays
+  // Reveal answers one by one with delays (only for new question submissions)
   useEffect(() => {
     if (answers.length === 0) {
       setVisibleAnswers([])
@@ -362,6 +362,29 @@ function App() {
       return
     }
 
+    // Check if visibleAnswers already has all the answers (loading existing question)
+    // If so, skip animation to avoid resetting visible answers
+    const visibleAnswerIds = new Set(visibleAnswers.map(a => a.answer.id))
+    const allAnswersPresent = answers.every(a => visibleAnswerIds.has(a.answer.id))
+    const countsMatch = visibleAnswers.length === answers.length
+
+    if (allAnswersPresent && countsMatch) {
+      // All answers already visible, don't reset and re-animate
+      // Just ensure upvotes and comments are loaded
+      answers.forEach((answer) => {
+        setUpvotes((prev) => {
+          if (!prev[answer.answer.id]) {
+            return { ...prev, [answer.answer.id]: 41 }
+          }
+          return prev
+        })
+        loadComments(answer.answer.id)
+        loadVoteCounts(undefined, answer.answer.id)
+      })
+      return
+    }
+
+    // If visibleAnswers is empty or doesn't match answers, start animation (new question)
     // Shuffle answers for random order
     const shuffled = shuffleArray(answers)
     setVisibleAnswers([])
@@ -687,6 +710,7 @@ function App() {
         })
 
         setAnswers(botAnswers)
+        setVisibleAnswers(botAnswers) // Set visible answers immediately when loading existing question
 
         // Load comments for the question and all answers (async follow-ups)
         loadQuestionComments(questionId)
@@ -738,6 +762,9 @@ function App() {
         setView('ask')
       } else if (hash === '#tags') {
         setCurrentPage('tags')
+        setView('ask')
+      } else if (hash === '#about') {
+        setCurrentPage('about')
         setView('ask')
       } else if (hash.startsWith('#questions/')) {
         const questionId = hash.replace('#questions/', '')
@@ -1304,7 +1331,18 @@ function App() {
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Chat</a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Articles</a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Users</a>
-            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Companies</a>
+            <a
+              href="#"
+              className={`mobile-nav-item ${currentPage === 'about' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentPage('about');
+                setMobileMenuOpen(false);
+                window.location.hash = '#about';
+              }}
+            >
+              About Us
+            </a>
           </nav>
         </div>
       )}
@@ -1352,7 +1390,17 @@ function App() {
             <a href="#" className="nav-item">Chat</a>
             <a href="#" className="nav-item">Articles</a>
             <a href="#" className="nav-item">Users</a>
-            <a href="#" className="nav-item">Companies</a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'about' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentPage('about');
+                window.location.hash = '#about';
+              }}
+            >
+              About Us
+            </a>
           </nav>
         </aside>
 
@@ -1560,6 +1608,79 @@ function App() {
             <Questions onSelectQuestion={handleSelectQuestion} />
           ) : currentPage === 'tags' ? (
             <Tabs onSelectQuestion={handleSelectQuestion} />
+          ) : currentPage === 'about' ? (
+            <section className="about-section" style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
+              <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                <img
+                  src="/stack-overflow-chart.png"
+                  alt="Stack Overflow questions decline chart showing the decline in questions from 2008 to 2026"
+                  style={{
+                    maxWidth: '100%',
+                    height: 'auto',
+                    borderRadius: '8px',
+                    margin: '0 auto 24px',
+                    display: 'block',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+                  }}
+                />
+              </div>
+
+              <div style={{ lineHeight: '1.6', color: '#232629' }}>
+                <h1 style={{ fontSize: '27px', marginBottom: '16px', color: '#3b4045' }}>About askless</h1>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>Inspiration</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  Stack Overflow used to be a rite of passage for developers. You would ask a question, wait a couple of days, then get a response that fixes your problems while giving you emotional damage. Nowadays, Stack Overflow activity is at an all-time low, and developers can simply ask ChatGPT for an instant, friendly response. We believe this is just too easy. So we rebuilt Stack Overflow with modern AI to deliver instant answers without sacrificing the classic developer trauma.
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>What it does</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  askless is a question forum that is strikingly similar to Stack Overflow, with a twist. Instead of waiting for a human to respond, questions are answered instantly by an AI trained to mimic the classic Stack Overflow experience. Reponses are helpful, opinionated, and occasionally condescending. The AI critiques variable names, throws "duplicate" questions back in your face, and may even violate your project constraints while confidently claiming it knows better.
+                </p>
+                <p style={{ marginBottom: '16px' }}>
+                  Post a carefully crafted question, add tags, and wait a moment for a response. Then, watch as the page populates with AI answers with a variety of personalities. From kind to snarky, the user gets the full Stack Overflow experience.
+                </p>
+                <p style={{ marginBottom: '16px' }}>
+                  Get involved with the community by replying or adding comments to posts. If your brain is big, share your knowledge by posting your own answer to a question rather than letting AI do all the work.
+                </p>
+                <p style={{ marginBottom: '16px' }}>
+                  Try browsing the askless "Questions" page to explore questions posted recently by the community. Who knows, maybe your question has already been answered!
+                </p>
+                <p style={{ marginBottom: '16px' }}>
+                  Check out the askless "Tags" page to explore posts with topics similar to yours. Even an expert can learn something new here.
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>How we built it</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  The frontend uses React, CSS, and TypeScript. The backend uses Node.js + Express (Typescript via tsx), Gemini API, REST API, and Supabase (Postgres + Auth + RLS, Supabase JS client).
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>Challenges we ran into</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  Brainstorming an interesting idea, managing merge conflicts, keeping the backend stable, running out of API tokens, working with RLS in the database.
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>Accomplishments that we're proud of</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  Everything &lt;3 Having wonderful, beautiful, hardworking teammates. We are proud of how we created a silly, satirical project and had fun doing it.
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>What we learned</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  We learned how to work with RLS. We also learned how to use Railway to deploy our backend. Most importantly, we learned the power of friendship✨
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>What's next for askless</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  We want more personality and sassy-ness in the AI responses. If a human user challenges an AI user's answer, the AI will attempt to defend it, capturing some classic programmer stubbornness.
+                </p>
+
+                <h2 style={{ fontSize: '19px', marginTop: '24px', marginBottom: '12px', color: '#3b4045' }}>Built With</h2>
+                <p style={{ marginBottom: '16px' }}>
+                  React, CSS, TypeScript, Node.js, Express, Gemini API, REST API, Supabase (Postgres + Auth + RLS, Supabase JS client), Railway
+                </p>
+              </div>
+            </section>
           ) : (
             <>
               {view === 'ask' ? (

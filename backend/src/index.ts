@@ -212,11 +212,18 @@ async function initializeBotProfiles(): Promise<void> {
     }
 }
 
-// Helper function to generate an answer for a specific bot personality
+// Helper function to sleep/delay
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// Helper function to generate an answer for a specific bot personality with retry logic
 async function generateBotAnswer(
     bot: BotPersonality,
     question: string,
-    questionId: string
+    questionId: string,
+    retryCount: number = 0,
+    maxRetries: number = 3
 ): Promise<{ answer: db.Answer | null; botProfile: db.Profile | null; error?: string }> {
     if (!config || !config.apiKey) {
         return { answer: null, botProfile: null, error: 'API key not configured' }
@@ -269,22 +276,34 @@ async function generateBotAnswer(
                 const result = await model.generateContent(prompt)
                 const response = await result.response
                 answer = response.text()
-                break
+                if (answer && answer.trim().length > 0) {
+                    break
+                }
             } catch (e: any) {
                 lastError = e
-                if (e.message?.includes('429') || e.message?.includes('quota') || e.message?.includes('rate limit')) {
-                    console.log(`Model ${modelName} hit quota limit for ${bot.name}, trying next model...`)
-                    continue
+                const isRateLimit = e.message?.includes('429') || e.message?.includes('quota') || e.message?.includes('rate limit')
+                if (isRateLimit) {
+                    console.log(`Model ${modelName} hit rate limit for ${bot.name}, trying next model...`)
+                    // Wait a bit before trying next model
+                    await sleep(1000 * (retryCount + 1))
                 }
                 continue
             }
+        }
+
+        // If no answer and we haven't exceeded max retries, retry with exponential backoff
+        if (!answer && retryCount < maxRetries) {
+            const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000) // Max 10 seconds
+            console.log(`Retrying ${bot.name} (attempt ${retryCount + 1}/${maxRetries}) after ${backoffDelay}ms...`)
+            await sleep(backoffDelay)
+            return generateBotAnswer(bot, question, questionId, retryCount + 1, maxRetries)
         }
 
         if (!answer) {
             return {
                 answer: null,
                 botProfile,
-                error: `Failed to generate answer: ${lastError?.message || 'Unknown error'}`
+                error: `Failed to generate answer after ${maxRetries} retries: ${lastError?.message || 'Unknown error'}`
             }
         }
 
@@ -293,7 +312,15 @@ async function generateBotAnswer(
 
         return { answer: savedAnswer, botProfile }
     } catch (error: any) {
-        console.error(`Error generating answer for ${bot.name}:`, error)
+        // Retry on unexpected errors if we haven't exceeded max retries
+        if (retryCount < maxRetries) {
+            const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000)
+            console.log(`Error for ${bot.name}, retrying (attempt ${retryCount + 1}/${maxRetries}) after ${backoffDelay}ms...`)
+            await sleep(backoffDelay)
+            return generateBotAnswer(bot, question, questionId, retryCount + 1, maxRetries)
+        }
+
+        console.error(`Error generating answer for ${bot.name} after ${maxRetries} retries:`, error)
         return { answer: null, botProfile: null, error: error.message }
     }
 }
@@ -404,10 +431,8 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         }
 
         const runBots = async () => {
-            const botAnswers = await Promise.allSettled(
-                BOT_PERSONALITIES.map(bot => generateBotAnswer(bot, question.trim(), savedQuestion.id))
-            )
-
+            // Process bots sequentially with delays to avoid rate limits
+            // This ensures all bots get a fair chance to respond
             const answers: Array<{
                 answer: db.Answer
                 botProfile: db.Profile
@@ -415,19 +440,37 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 botId: string
             }> = []
 
-            botAnswers.forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value.answer && result.value.botProfile) {
-                    answers.push({
-                        answer: result.value.answer,
-                        botProfile: result.value.botProfile,
-                        botName: BOT_PERSONALITIES[index].name,
-                        botId: BOT_PERSONALITIES[index].id
-                    })
-                } else {
-                    console.error(`Failed to generate answer for ${BOT_PERSONALITIES[index].name}:`, result.status === 'rejected' ? result.reason : result.value.error)
-                }
-            })
+            for (let i = 0; i < BOT_PERSONALITIES.length; i++) {
+                const bot = BOT_PERSONALITIES[i]
 
+                // Add delay between bot requests to avoid rate limits (except for first bot)
+                if (i > 0) {
+                    const delay = 500 * i // Stagger: 500ms, 1000ms, 1500ms, 2000ms
+                    console.log(`Waiting ${delay}ms before processing ${bot.name}...`)
+                    await sleep(delay)
+                }
+
+                try {
+                    console.log(`Generating answer for ${bot.name} (${i + 1}/${BOT_PERSONALITIES.length})...`)
+                    const result = await generateBotAnswer(bot, question.trim(), savedQuestion.id)
+
+                    if (result.answer && result.botProfile) {
+                        answers.push({
+                            answer: result.answer,
+                            botProfile: result.botProfile,
+                            botName: bot.name,
+                            botId: bot.id
+                        })
+                        console.log(`✅ Successfully generated answer for ${bot.name}`)
+                    } else {
+                        console.error(`❌ Failed to generate answer for ${bot.name}:`, result.error || 'Unknown error')
+                    }
+                } catch (error: any) {
+                    console.error(`❌ Error generating answer for ${bot.name}:`, error.message || error)
+                }
+            }
+
+            console.log(`Generated ${answers.length}/${BOT_PERSONALITIES.length} bot answers`)
             return answers
         }
 
