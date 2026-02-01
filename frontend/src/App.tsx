@@ -242,6 +242,27 @@ function App() {
     }
   }, [apiBase])
 
+  // Check URL hash on mount and on hash change to handle profile links
+  useEffect(() => {
+    const checkHash = () => {
+      const hash = window.location.hash
+      if (hash === '#profile' && user) {
+        setView('profile')
+        loadUserProfile(user.id)
+      } else if (!hash || hash === '') {
+        setView('ask')
+        setCurrentPage('home')
+      }
+    }
+
+    checkHash()
+    window.addEventListener('hashchange', checkHash)
+
+    return () => {
+      window.removeEventListener('hashchange', checkHash)
+    }
+  }, [user, loadUserProfile])
+
   useEffect(() => {
     let isMounted = true
     supabase.auth.getSession().then(({ data }) => {
@@ -333,11 +354,16 @@ function App() {
     setUserStats(null)
   }
 
-  const handleProfileClick = () => {
+  const handleProfileClick = (e: React.MouseEvent) => {
+    e.preventDefault()
     if (user) {
-      setView('profile')
-      loadUserProfile(user.id)
+      window.location.hash = '#profile'
     }
+  }
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    window.location.hash = ''
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -656,7 +682,7 @@ function App() {
           >
             ☰
           </button>
-          <div className="logo">askless</div>
+          <div className="logo clickable" onClick={handleLogoClick}>askless</div>
           <a href="#" className="header-link">Products</a>
           <div className="header-search">
             <input type="search" placeholder="Q Search..." className="search-input" />
