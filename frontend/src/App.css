@@ -1471,8 +1471,7 @@
   color: var(--so-blue);
 }
 
-<<<<<<< HEAD
-@media (max-width: 640px) {
+<<<<<<< HEAD @media (max-width: 640px) {
   .left-sidebar {
     display: none;
   }
@@ -1637,6 +1636,7 @@
   opacity: 0.7;
   flex-shrink: 0;
 }
+
 .tag-selection-wrapper {
   margin-top: 16px;
 }
