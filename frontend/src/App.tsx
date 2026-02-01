@@ -77,11 +77,7 @@ function App() {
   const [userActivity, setUserActivity] = useState<UserActivity | null>(null)
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-<<<<<<< HEAD
   const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers'>('summary')
-=======
-  const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers' | 'comments'>('summary')
->>>>>>> e6c7c7c (feat: add a profile page)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [tags, setTags] = useState('')
@@ -94,7 +90,6 @@ function App() {
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
-  const [isClosed, setIsClosed] = useState(false)
   const [duplicateNotice, setDuplicateNotice] = useState('')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
@@ -749,18 +744,6 @@ function App() {
                         </span>
                       </div>
                     </div>
-                    <button
-                      className="ask-question-link"
-                      onClick={() => {
-                        setView('ask')
-                        setCurrentQuestion(null)
-                        setAnswers([])
-                        setVisibleAnswers([])
-                        setComments({})
-                      }}
-                    >
-                      Ask Question
-                    </button>
                   </div>
 
                   <div className="profile-tabs">
@@ -782,12 +765,6 @@ function App() {
                     >
                       Answers
                     </button>
-                    <button
-                      className={`profile-tab ${activeProfileTab === 'comments' ? 'active' : ''}`}
-                      onClick={() => setActiveProfileTab('comments')}
-                    >
-                      Comments
-                    </button>
                   </div>
 
                   <div className="profile-content">
@@ -801,10 +778,6 @@ function App() {
                           <div className="profile-stat-card">
                             <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
                             <div className="profile-stat-label">Answers</div>
-                          </div>
-                          <div className="profile-stat-card">
-                            <div className="profile-stat-value">{userStats?.commentsCount || 0}</div>
-                            <div className="profile-stat-label">Comments</div>
                           </div>
                         </div>
                         <div className="profile-summary-box">
@@ -867,7 +840,27 @@ function App() {
                                   </a>
                                 </h3>
                                 <div className="profile-activity-item-meta">
-                                  <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                    {question.tags && question.tags.length > 0 && (
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {question.tags.map((tag: any) => (
+                                          <span key={tag.id || tag.name} className="tag" style={{
+                                            background: 'var(--so-blue-light)',
+                                            color: 'var(--so-blue)',
+                                            padding: '4px 8px',
+                                            borderRadius: '3px',
+                                            fontSize: '12px'
+                                          }}>
+                                            {tag.name || tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
+                                      {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
+                                    </span>
+                                    <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -892,30 +885,6 @@ function App() {
                                 </div>
                                 <div className="profile-activity-item-meta">
                                   <span>{new Date(answer.created_at).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {activeProfileTab === 'comments' && (
-                      <div className="profile-activity">
-                        <h2 className="profile-activity-title">Comments ({userActivity?.comments.length || 0})</h2>
-                        {userActivity?.comments.length === 0 ? (
-                          <div className="profile-empty">No comments yet.</div>
-                        ) : (
-                          <div className="profile-activity-list">
-                            {userActivity?.comments.map(comment => (
-                              <div key={comment.id} className="profile-activity-item">
-                                <div className="profile-activity-item-content">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {comment.content}
-                                  </ReactMarkdown>
-                                </div>
-                                <div className="profile-activity-item-meta">
-                                  <span>{new Date(comment.created_at).toLocaleDateString()}</span>
                                 </div>
                               </div>
                             ))}
