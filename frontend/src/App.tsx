@@ -127,6 +127,7 @@ function App() {
   const QUESTION_CACHE_TTL = 5 * 60 * 1000
   const QUESTION_CACHE_MAX = 8
   const QUESTION_LS_TTL = 10 * 60 * 1000
+  const COMMENT_LS_TTL = 10 * 60 * 1000
 
   const getLocalCachedQuestion = (questionId: string) => {
     try {
@@ -146,6 +147,32 @@ function App() {
   const setLocalCachedQuestion = (questionId: string, entry: CachedQuestion) => {
     try {
       localStorage.setItem(`askless:question:${questionId}`, JSON.stringify(entry))
+    } catch {
+      // ignore storage errors for demo
+    }
+  }
+
+  const getLocalCachedComments = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as { data: Comment[]; cachedAt: number }
+      if (!parsed?.cachedAt || Date.now() - parsed.cachedAt > COMMENT_LS_TTL) {
+        localStorage.removeItem(key)
+        return null
+      }
+      return parsed.data
+    } catch {
+      return null
+    }
+  }
+
+  const setLocalCachedComments = (key: string, data: Comment[]) => {
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({ data, cachedAt: Date.now() })
+      )
     } catch {
       // ignore storage errors for demo
     }
@@ -178,8 +205,16 @@ function App() {
   const isBodyValid = bodyLength >= 20
   const canSubmit = isTitleValid && isBodyValid && !isLoading && user
 
-  const loadComments = useCallback(async (answerId: string) => {
+  const loadComments = useCallback(async (answerId: string, force = false) => {
     try {
+      const storageKey = `askless:comments:answer:${answerId}`
+      if (!force) {
+        const cached = getLocalCachedComments(storageKey)
+        if (cached) {
+          setComments(prev => ({ ...prev, [answerId]: cached }))
+          return
+        }
+      }
       const response = await fetch(`${apiBase}/api/answers/${answerId}/comments`)
       if (response.ok) {
         const data = await response.json()
@@ -187,6 +222,7 @@ function App() {
         const commentsArray = Array.isArray(data) ? data : []
         console.log(`Loaded ${commentsArray.length} comments for answer ${answerId}`, commentsArray)
         setComments(prev => ({ ...prev, [answerId]: commentsArray }))
+        setLocalCachedComments(storageKey, commentsArray)
       } else {
         console.error('Failed to load comments:', response.status, response.statusText)
       }
@@ -195,8 +231,16 @@ function App() {
     }
   }, [apiBase])
 
-  const loadQuestionComments = useCallback(async (questionId: string) => {
+  const loadQuestionComments = useCallback(async (questionId: string, force = false) => {
     try {
+      const storageKey = `askless:comments:question:${questionId}`
+      if (!force) {
+        const cached = getLocalCachedComments(storageKey)
+        if (cached) {
+          setQuestionComments(cached)
+          return
+        }
+      }
       const response = await fetch(`${apiBase}/api/questions/${questionId}/comments`)
       if (response.ok) {
         const data = await response.json()
@@ -204,6 +248,7 @@ function App() {
         const commentsArray = Array.isArray(data) ? data : []
         console.log(`Loaded ${commentsArray.length} question comments for question ${questionId}`, commentsArray)
         setQuestionComments(commentsArray)
+        setLocalCachedComments(storageKey, commentsArray)
       } else {
         console.error('Failed to load question comments:', response.status, response.statusText)
       }
@@ -984,7 +1029,7 @@ function App() {
 
       // Reload comments after a short delay to ensure the comment is saved
       setTimeout(async () => {
-        await loadComments(answerId)
+        await loadComments(answerId, true)
       }, 300)
     } catch (err: any) {
       setError(err.message || 'Failed to post comment.')
@@ -1041,7 +1086,7 @@ function App() {
 
       // Reload question comments after a short delay to ensure the comment is saved
       setTimeout(async () => {
-        await loadQuestionComments(questionId)
+        await loadQuestionComments(questionId, true)
       }, 100)
     } catch (err: any) {
       setError(err.message || 'Failed to post comment.')
@@ -1099,12 +1144,12 @@ function App() {
       // Reload comments from server to ensure consistency
       if (answerId) {
         setTimeout(async () => {
-          await loadComments(answerId)
+          await loadComments(answerId, true)
         }, 300)
       }
       if (questionId) {
         setTimeout(async () => {
-          await loadQuestionComments(questionId)
+          await loadQuestionComments(questionId, true)
         }, 300)
       }
     } catch (err: any) {
