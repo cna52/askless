@@ -40,7 +40,8 @@ export interface Answer {
 export interface Comment {
     id: string
     created_at: string
-    answer_id: string
+    answer_id?: string
+    question_id?: string
     user_id: string
     content: string
     parent_id?: string
@@ -334,15 +335,17 @@ export async function getTagsForQuestion(questionId: string): Promise<Tag[]> {
 
 // Comment operations
 export async function createComment(
-    answerId: string,
+    answerId: string | undefined,
     userId: string,
     content: string,
-    parentId?: string
+    parentId?: string,
+    questionId?: string
 ): Promise<Comment | null> {
     const { data, error } = await supabase
         .from('comments')
         .insert({
-            answer_id: answerId,
+            answer_id: answerId || null,
+            question_id: questionId || null,
             user_id: userId,
             content,
             parent_id: parentId || null
@@ -357,6 +360,15 @@ export async function createComment(
     return data
 }
 
+export async function createQuestionComment(
+    questionId: string,
+    userId: string,
+    content: string,
+    parentId?: string
+): Promise<Comment | null> {
+    return createComment(undefined, userId, content, parentId, questionId)
+}
+
 export async function getCommentsForAnswer(answerId: string): Promise<(Comment & { profile?: Profile })[]> {
     const { data, error } = await supabase
         .from('comments')
@@ -369,6 +381,26 @@ export async function getCommentsForAnswer(answerId: string): Promise<(Comment &
 
     if (error) {
         console.error('Error fetching comments:', error)
+        return []
+    }
+    return data?.map((item: any) => ({
+        ...item,
+        profile: item.profile || undefined
+    })) || []
+}
+
+export async function getCommentsForQuestion(questionId: string): Promise<(Comment & { profile?: Profile })[]> {
+    const { data, error } = await supabase
+        .from('comments')
+        .select(`
+            *,
+            profile:profiles!comments_user_id_fkey(id, username, avatar_url)
+        `)
+        .eq('question_id', questionId)
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error('Error fetching question comments:', error)
         return []
     }
     return data?.map((item: any) => ({
@@ -424,4 +456,36 @@ export async function getCommentsByUser(userId: string): Promise<(Comment & { pr
         ...item,
         profile: item.profile || undefined
     })) || []
+}
+
+export async function deleteComment(commentId: string, userId: string): Promise<boolean> {
+    // First verify the comment belongs to the user
+    const { data: comment, error: fetchError } = await supabase
+        .from('comments')
+        .select('user_id')
+        .eq('id', commentId)
+        .single()
+
+    if (fetchError || !comment) {
+        console.error('Error fetching comment:', fetchError)
+        return false
+    }
+
+    if (comment.user_id !== userId) {
+        console.error('User does not own this comment')
+        return false
+    }
+
+    // Delete the comment
+    const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId)
+
+    if (error) {
+        console.error('Error deleting comment:', error)
+        return false
+    }
+
+    return true
 }

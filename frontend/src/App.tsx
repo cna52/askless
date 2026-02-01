@@ -27,6 +27,8 @@ interface Question {
   content: string
   created_at: string
   user_id: string
+  tags?: Array<{ id: string; name: string }>
+  answerCount?: number
 }
 
 interface Comment {
@@ -59,13 +61,11 @@ interface UserActivity {
     content: string
     is_accepted: boolean
   }>
-  comments: Comment[]
 }
 
 interface UserStats {
   questionsCount: number
   answersCount: number
-  commentsCount: number
 }
 
 function App() {
@@ -75,17 +75,19 @@ function App() {
   const [userActivity, setUserActivity] = useState<UserActivity | null>(null)
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers' | 'comments'>('summary')
+  const [activeProfileTab, setActiveProfileTab] = useState<'summary' | 'questions' | 'answers'>('summary')
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [tags, setTags] = useState('')
   const [answers, setAnswers] = useState<BotAnswer[]>([])
   const [visibleAnswers, setVisibleAnswers] = useState<BotAnswer[]>([])
   const [comments, setComments] = useState<Record<string, Comment[]>>({})
+  const [questionComments, setQuestionComments] = useState<Comment[]>([])
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
+  const [questionCommentText, setQuestionCommentText] = useState('')
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
+  const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
-  const [isClosed, setIsClosed] = useState(false)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
     'tried': false,
@@ -97,7 +99,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:3001'
+  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
 
   const titleLength = title.trim().length
   const bodyLength = body.trim().length
@@ -110,10 +112,30 @@ function App() {
       const response = await fetch(`${apiBase}/api/answers/${answerId}/comments`)
       if (response.ok) {
         const data = await response.json()
-        setComments(prev => ({ ...prev, [answerId]: data }))
+        // Ensure data is an array
+        const commentsArray = Array.isArray(data) ? data : []
+        setComments(prev => ({ ...prev, [answerId]: commentsArray }))
+      } else {
+        console.error('Failed to load comments:', response.status, response.statusText)
       }
     } catch (err) {
       console.error('Failed to load comments:', err)
+    }
+  }, [apiBase])
+
+  const loadQuestionComments = useCallback(async (questionId: string) => {
+    try {
+      const response = await fetch(`${apiBase}/api/questions/${questionId}/comments`)
+      if (response.ok) {
+        const data = await response.json()
+        // Ensure data is an array
+        const commentsArray = Array.isArray(data) ? data : []
+        setQuestionComments(commentsArray)
+      } else {
+        console.error('Failed to load question comments:', response.status, response.statusText)
+      }
+    } catch (err) {
+      console.error('Failed to load question comments:', err)
     }
   }, [apiBase])
 
@@ -182,12 +204,15 @@ function App() {
 
   // Load comments when question view is shown
   useEffect(() => {
-    if (view === 'question' && visibleAnswers.length > 0) {
-      visibleAnswers.forEach(answer => {
-        loadComments(answer.answer.id)
-      })
+    if (view === 'question' && currentQuestion) {
+      loadQuestionComments(currentQuestion.id)
+      if (visibleAnswers.length > 0) {
+        visibleAnswers.forEach(answer => {
+          loadComments(answer.answer.id)
+        })
+      }
     }
-  }, [view, visibleAnswers, loadComments])
+  }, [view, visibleAnswers, loadComments, currentQuestion, loadQuestionComments])
 
   const loadUserProfile = useCallback(async (userId: string) => {
     setProfileLoading(true)
@@ -314,7 +339,6 @@ function App() {
     setError('')
     setAnswers([])
     setVisibleAnswers([])
-    setIsClosed(false)
     setUpvotes({})
 
     try {
@@ -362,7 +386,10 @@ function App() {
         setBody('')
         setTags('')
         setView('question')
-        // Load comments for all answers
+        // Load question comments and comments for all answers
+        if (data.question) {
+          loadQuestionComments(data.question.id)
+        }
         if (data.answers) {
           data.answers.forEach(a => {
             loadComments(a.answer.id)
@@ -427,7 +454,8 @@ function App() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to post comment')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to post comment')
       }
 
       // Clear comment text
@@ -445,10 +473,109 @@ function App() {
         })
       }
 
-      // Reload comments
-      await loadComments(answerId)
+      // Reload comments after a short delay to ensure the comment is saved
+      setTimeout(async () => {
+        await loadComments(answerId)
+      }, 300)
     } catch (err: any) {
       setError(err.message || 'Failed to post comment.')
+    }
+  }
+
+  const handleAddQuestionComment = async (questionId: string, parentId?: string) => {
+    if (!user) {
+      setError('Please sign in to comment.')
+      return
+    }
+
+    const commentText = parentId
+      ? replyingToQuestion[parentId] || ''
+      : questionCommentText || ''
+
+    if (!commentText.trim()) return
+
+    try {
+      const username =
+        user.user_metadata?.user_name ||
+        user.user_metadata?.preferred_username ||
+        user.user_metadata?.full_name ||
+        user.email?.split('@')[0]
+      const avatarUrl = user.user_metadata?.avatar_url || null
+
+      const response = await fetch(`${apiBase}/api/questions/${questionId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: commentText.trim(),
+          userId: user.id,
+          username,
+          avatarUrl,
+          parentId,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to post comment')
+      }
+
+      // Clear comment text
+      if (parentId) {
+        setReplyingToQuestion(prev => {
+          const newReplying = { ...prev }
+          delete newReplying[parentId]
+          return newReplying
+        })
+      } else {
+        setQuestionCommentText('')
+      }
+
+      // Reload question comments after a short delay to ensure the comment is saved
+      setTimeout(async () => {
+        await loadQuestionComments(questionId)
+      }, 100)
+    } catch (err: any) {
+      setError(err.message || 'Failed to post comment.')
+    }
+  }
+
+  const handleDeleteComment = async (commentId: string, answerId?: string, questionId?: string) => {
+    if (!user) {
+      setError('Please sign in to delete comments.')
+      return
+    }
+
+    if (!confirm('Are you sure you want to delete this comment?')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`${apiBase}/api/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to delete comment')
+      }
+
+      // Reload comments
+      if (answerId) {
+        setTimeout(async () => {
+          await loadComments(answerId)
+        }, 100)
+      }
+      if (questionId) {
+        setTimeout(async () => {
+          await loadQuestionComments(questionId)
+        }, 100)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete comment.')
     }
   }
 
@@ -539,18 +666,6 @@ function App() {
                         </span>
                       </div>
                     </div>
-                    <button
-                      className="ask-question-link"
-                      onClick={() => {
-                        setView('ask')
-                        setCurrentQuestion(null)
-                        setAnswers([])
-                        setVisibleAnswers([])
-                        setComments({})
-                      }}
-                    >
-                      Ask Question
-                    </button>
                   </div>
 
                   <div className="profile-tabs">
@@ -572,12 +687,6 @@ function App() {
                     >
                       Answers
                     </button>
-                    <button
-                      className={`profile-tab ${activeProfileTab === 'comments' ? 'active' : ''}`}
-                      onClick={() => setActiveProfileTab('comments')}
-                    >
-                      Comments
-                    </button>
                   </div>
 
                   <div className="profile-content">
@@ -591,10 +700,6 @@ function App() {
                           <div className="profile-stat-card">
                             <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
                             <div className="profile-stat-label">Answers</div>
-                          </div>
-                          <div className="profile-stat-card">
-                            <div className="profile-stat-value">{userStats?.commentsCount || 0}</div>
-                            <div className="profile-stat-label">Comments</div>
                           </div>
                         </div>
                         <div className="profile-summary-box">
@@ -657,7 +762,27 @@ function App() {
                                   </a>
                                 </h3>
                                 <div className="profile-activity-item-meta">
-                                  <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                    {question.tags && question.tags.length > 0 && (
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {question.tags.map((tag: any) => (
+                                          <span key={tag.id || tag.name} className="tag" style={{
+                                            background: 'var(--so-blue-light)',
+                                            color: 'var(--so-blue)',
+                                            padding: '4px 8px',
+                                            borderRadius: '3px',
+                                            fontSize: '12px'
+                                          }}>
+                                            {tag.name || tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
+                                      {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
+                                    </span>
+                                    <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -682,30 +807,6 @@ function App() {
                                 </div>
                                 <div className="profile-activity-item-meta">
                                   <span>{new Date(answer.created_at).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {activeProfileTab === 'comments' && (
-                      <div className="profile-activity">
-                        <h2 className="profile-activity-title">Comments ({userActivity?.comments.length || 0})</h2>
-                        {userActivity?.comments.length === 0 ? (
-                          <div className="profile-empty">No comments yet.</div>
-                        ) : (
-                          <div className="profile-activity-list">
-                            {userActivity?.comments.map(comment => (
-                              <div key={comment.id} className="profile-activity-item">
-                                <div className="profile-activity-item-content">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {comment.content}
-                                  </ReactMarkdown>
-                                </div>
-                                <div className="profile-activity-item-meta">
-                                  <span>{new Date(comment.created_at).toLocaleDateString()}</span>
                                 </div>
                               </div>
                             ))}
@@ -817,6 +918,8 @@ function App() {
                     setAnswers([])
                     setVisibleAnswers([])
                     setComments({})
+                    setQuestionComments([])
+                    setQuestionCommentText('')
                   }}
                 >
                   Ask Question
@@ -850,95 +953,364 @@ function App() {
               </div>
 
               <div className="answers-section">
-                <h2 className="answers-title">
-                  {visibleAnswers.length} {visibleAnswers.length === 1 ? 'Answer' : 'Answers'}
-                </h2>
+                {(() => {
+                  // Count only answers to the question: AI answers + question comments (top-level comments on questions)
+                  // Comments on answers are NOT counted as answers
+                  const totalQuestionComments = questionComments.filter(c => !c.parent_id || c.parent_id === null).length
+                  const totalAnswers = visibleAnswers.length + totalQuestionComments
+                  return (
+                    <h2 className="answers-title">
+                      {totalAnswers} {totalAnswers === 1 ? 'Answer' : 'Answers'}
+                    </h2>
+                  )
+                })()}
 
                 {visibleAnswers.map((botAnswer) => {
                   const answerComments = comments[botAnswer.answer.id] || []
-                  const topLevelComments = answerComments.filter(c => !c.parent_id)
+                  const topLevelComments = answerComments.filter(c => !c.parent_id || c.parent_id === null)
+                  const nestedComments = answerComments.filter(c => c.parent_id)
 
                   return (
-                    <div key={botAnswer.answer.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
-                      <div className="answer-header">
-                        <div className="answer-votes">
-                          <button className="vote-button upvote">▲</button>
-                          <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
-                          <button className="vote-button downvote">▼</button>
-                        </div>
-                        <div className="answer-content">
-                          <div className="answer-text">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {botAnswer.answerText || botAnswer.answer.content}
-                            </ReactMarkdown>
+                    <div key={botAnswer.answer.id}>
+                      {/* AI Answer */}
+                      <div className="answer-card" style={{ marginBottom: '1.5rem' }}>
+                        <div className="answer-header">
+                          <div className="answer-votes">
+                            <button className="vote-button upvote">▲</button>
+                            <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
+                            <button className="vote-button downvote">▼</button>
                           </div>
-                          <div className="answer-footer">
-                            <div className="answer-author">
-                              <span>Answered by:</span>
-                              <a href="#" className="author-link">{botAnswer.botProfile.username}</a>
-                              <span className="author-badge" style={{
-                                marginLeft: '0.5rem',
-                                padding: '0.25rem 0.5rem',
-                                backgroundColor: '#e3f2fd',
-                                borderRadius: '4px',
-                                fontSize: '0.75rem'
-                              }}>
-                                {botAnswer.botName}
-                              </span>
+                          <div className="answer-content">
+                            <div className="answer-text">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {botAnswer.answerText || botAnswer.answer.content}
+                              </ReactMarkdown>
                             </div>
-                          </div>
+                            <div className="answer-footer">
+                              <div className="answer-author">
+                                <span>Answered by:</span>
+                                <a href="#" className="author-link">{botAnswer.botProfile.username}</a>
+                              </div>
+                            </div>
 
-                          {/* Comments Section */}
-                          <div className="comments-section">
-                            {topLevelComments.map(comment => (
-                              <div key={comment.id} className="comment-item">
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Comments on AI Answer - compact format */}
+                      {topLevelComments.length > 0 && (
+                        <div className="comments-section" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--so-border)' }}>
+                          {topLevelComments.map(comment => (
+                            <div key={comment.id} className="comment-item" style={{ marginBottom: '8px' }}>
+                              <div className="comment-content" style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {comment.content}
+                                </ReactMarkdown>
+                                <div className="comment-author" style={{ fontSize: '11px', marginTop: '2px' }}>
+                                  <a href="#" className="author-link" style={{ fontSize: '11px' }}>{comment.profile?.username || 'User'}</a>
+                                  <button
+                                    className="comment-reply-btn"
+                                    onClick={() => {
+                                      const key = `${botAnswer.answer.id}-${comment.id}`
+                                      setReplyingTo(prev => ({
+                                        ...prev,
+                                        [key]: prev[key] || ''
+                                      }))
+                                    }}
+                                    style={{ fontSize: '11px' }}
+                                  >
+                                    Reply
+                                  </button>
+                                  {user && comment.user_id === user.id && (
+                                    <button
+                                      className="comment-delete-btn"
+                                      onClick={() => handleDeleteComment(comment.id, botAnswer.answer.id)}
+                                      style={{
+                                        marginLeft: '6px',
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#d32f2f',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        textDecoration: 'underline'
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Reply input */}
+                              {replyingTo[`${botAnswer.answer.id}-${comment.id}`] !== undefined && (
+                                <div className="comment-reply-form" style={{ marginTop: '6px' }}>
+                                  <textarea
+                                    className="comment-input"
+                                    placeholder="Add a reply..."
+                                    value={replyingTo[`${botAnswer.answer.id}-${comment.id}`] || ''}
+                                    onChange={(e) => setReplyingTo(prev => ({
+                                      ...prev,
+                                      [`${botAnswer.answer.id}-${comment.id}`]: e.target.value
+                                    }))}
+                                    rows={2}
+                                    style={{ fontSize: '12px', padding: '6px', minHeight: '50px' }}
+                                  />
+                                  <div className="comment-actions" style={{ marginTop: '4px' }}>
+                                    <button
+                                      className="comment-submit-btn"
+                                      onClick={() => handleAddComment(botAnswer.answer.id, comment.id)}
+                                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                                    >
+                                      Add Comment
+                                    </button>
+                                    <button
+                                      className="comment-cancel-btn"
+                                      onClick={() => {
+                                        setReplyingTo(prev => {
+                                          const newReplying = { ...prev }
+                                          delete newReplying[`${botAnswer.answer.id}-${comment.id}`]
+                                          return newReplying
+                                        })
+                                      }}
+                                      style={{ fontSize: '11px', padding: '4px 8px' }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Nested replies to comments */}
+                              {nestedComments.filter(c => c.parent_id === comment.id).length > 0 && (
+                                <div style={{ marginLeft: '24px', marginTop: '8px', paddingLeft: '12px', borderLeft: '1px solid var(--so-border)' }}>
+                                  {nestedComments
+                                    .filter(c => c.parent_id === comment.id)
+                                    .map(reply => (
+                                      <div key={reply.id} className="comment-item nested" style={{ marginBottom: '6px', paddingBottom: '6px' }}>
+                                        <div className="comment-content" style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {reply.content}
+                                          </ReactMarkdown>
+                                          <div className="comment-author" style={{ fontSize: '11px', marginTop: '2px' }}>
+                                            <a href="#" className="author-link" style={{ fontSize: '11px' }}>{reply.profile?.username || 'User'}</a>
+                                            <button
+                                              className="comment-reply-btn"
+                                              onClick={() => {
+                                                const key = `${botAnswer.answer.id}-${reply.id}`
+                                                setReplyingTo(prev => ({
+                                                  ...prev,
+                                                  [key]: prev[key] || ''
+                                                }))
+                                              }}
+                                              style={{ fontSize: '11px' }}
+                                            >
+                                              Reply
+                                            </button>
+                                            {user && reply.user_id === user.id && (
+                                              <button
+                                                className="comment-delete-btn"
+                                                onClick={() => handleDeleteComment(reply.id, botAnswer.answer.id)}
+                                                style={{
+                                                  marginLeft: '6px',
+                                                  background: 'none',
+                                                  border: 'none',
+                                                  color: '#d32f2f',
+                                                  cursor: 'pointer',
+                                                  fontSize: '11px',
+                                                  textDecoration: 'underline'
+                                                }}
+                                              >
+                                                Delete
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Reply input for nested comments */}
+                                        {replyingTo[`${botAnswer.answer.id}-${reply.id}`] !== undefined && (
+                                          <div className="comment-reply-form" style={{ marginTop: '6px' }}>
+                                            <textarea
+                                              className="comment-input"
+                                              placeholder="Add a reply..."
+                                              value={replyingTo[`${botAnswer.answer.id}-${reply.id}`] || ''}
+                                              onChange={(e) => setReplyingTo(prev => ({
+                                                ...prev,
+                                                [`${botAnswer.answer.id}-${reply.id}`]: e.target.value
+                                              }))}
+                                              rows={2}
+                                              style={{ fontSize: '12px', padding: '6px', minHeight: '50px' }}
+                                            />
+                                            <div className="comment-actions" style={{ marginTop: '4px' }}>
+                                              <button
+                                                className="comment-submit-btn"
+                                                onClick={() => handleAddComment(botAnswer.answer.id, reply.id)}
+                                                style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              >
+                                                Add Comment
+                                              </button>
+                                              <button
+                                                className="comment-cancel-btn"
+                                                onClick={() => {
+                                                  setReplyingTo(prev => {
+                                                    const newReplying = { ...prev }
+                                                    delete newReplying[`${botAnswer.answer.id}-${reply.id}`]
+                                                    return newReplying
+                                                  })
+                                                }}
+                                                style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add comment form for AI answer */}
+                      {user && (
+                        <div className="comment-form" style={{ marginTop: '12px', marginBottom: '1.5rem' }}>
+                          <textarea
+                            className="comment-input"
+                            placeholder="Add a comment..."
+                            value={commentTexts[botAnswer.answer.id] || ''}
+                            onChange={(e) => setCommentTexts(prev => ({
+                              ...prev,
+                              [botAnswer.answer.id]: e.target.value
+                            }))}
+                            rows={3}
+                          />
+                          <div className="comment-actions">
+                            <button
+                              className="comment-submit-btn"
+                              onClick={() => handleAddComment(botAnswer.answer.id)}
+                              disabled={!commentTexts[botAnswer.answer.id]?.trim()}
+                            >
+                              Add Comment
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Question Comments Section - Displayed as Answer Cards */}
+              {questionComments.filter(c => !c.parent_id || c.parent_id === null).map(comment => {
+                const nestedQuestionComments = questionComments.filter(c => c.parent_id === comment.id)
+                return (
+                  <div key={comment.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
+                    <div className="answer-header">
+                      <div className="answer-votes">
+                        <button className="vote-button upvote">▲</button>
+                        <div className="vote-count">0</div>
+                        <button className="vote-button downvote">▼</button>
+                      </div>
+                      <div className="answer-content">
+                        <div className="answer-text">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {comment.content}
+                          </ReactMarkdown>
+                        </div>
+                        <div className="answer-footer">
+                          <div className="answer-author">
+                            <span>Answered by:</span>
+                            <a href="#" className="author-link">{comment.profile?.username || 'User'}</a>
+                            {user && comment.user_id === user.id && (
+                              <button
+                                className="comment-delete-btn"
+                                onClick={() => handleDeleteComment(comment.id, undefined, currentQuestion.id)}
+                                style={{
+                                  marginLeft: '8px',
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#d32f2f',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  textDecoration: 'underline'
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Comments on this answer (nested replies) */}
+                        {nestedQuestionComments.length > 0 && (
+                          <div className="comments-section" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--so-border)' }}>
+                            {nestedQuestionComments.map(reply => (
+                              <div key={reply.id} className="comment-item nested">
                                 <div className="comment-content">
                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {comment.content}
+                                    {reply.content}
                                   </ReactMarkdown>
                                   <div className="comment-author">
-                                    <a href="#" className="author-link">{comment.profile?.username || 'User'}</a>
+                                    <a href="#" className="author-link">{reply.profile?.username || 'User'}</a>
                                     <button
                                       className="comment-reply-btn"
                                       onClick={() => {
-                                        const key = `${botAnswer.answer.id}-${comment.id}`
-                                        setReplyingTo(prev => ({
+                                        setReplyingToQuestion(prev => ({
                                           ...prev,
-                                          [key]: prev[key] || ''
+                                          [reply.id]: prev[reply.id] || ''
                                         }))
                                       }}
                                     >
                                       Reply
                                     </button>
+                                    {user && reply.user_id === user.id && (
+                                      <button
+                                        className="comment-delete-btn"
+                                        onClick={() => handleDeleteComment(reply.id, undefined, currentQuestion.id)}
+                                        style={{
+                                          marginLeft: '8px',
+                                          background: 'none',
+                                          border: 'none',
+                                          color: '#d32f2f',
+                                          cursor: 'pointer',
+                                          fontSize: '12px',
+                                          textDecoration: 'underline'
+                                        }}
+                                      >
+                                        Delete
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
 
-                                {/* Reply input */}
-                                {replyingTo[`${botAnswer.answer.id}-${comment.id}`] !== undefined && (
+                                {/* Reply input for nested comments */}
+                                {replyingToQuestion[reply.id] !== undefined && (
                                   <div className="comment-reply-form">
                                     <textarea
                                       className="comment-input"
                                       placeholder="Add a reply..."
-                                      value={replyingTo[`${botAnswer.answer.id}-${comment.id}`] || ''}
-                                      onChange={(e) => setReplyingTo(prev => ({
+                                      value={replyingToQuestion[reply.id] || ''}
+                                      onChange={(e) => setReplyingToQuestion(prev => ({
                                         ...prev,
-                                        [`${botAnswer.answer.id}-${comment.id}`]: e.target.value
+                                        [reply.id]: e.target.value
                                       }))}
                                       rows={3}
                                     />
                                     <div className="comment-actions">
                                       <button
                                         className="comment-submit-btn"
-                                        onClick={() => handleAddComment(botAnswer.answer.id, comment.id)}
+                                        onClick={() => handleAddQuestionComment(currentQuestion.id, reply.id)}
                                       >
-                                        Add Reply
+                                        Add Comment
                                       </button>
                                       <button
                                         className="comment-cancel-btn"
                                         onClick={() => {
-                                          setReplyingTo(prev => {
+                                          setReplyingToQuestion(prev => {
                                             const newReplying = { ...prev }
-                                            delete newReplying[`${botAnswer.answer.id}-${comment.id}`]
+                                            delete newReplying[reply.id]
                                             return newReplying
                                           })
                                         }}
@@ -948,111 +1320,64 @@ function App() {
                                     </div>
                                   </div>
                                 )}
-
-                                {/* Nested replies */}
-                                {answerComments
-                                  .filter(c => c.parent_id === comment.id)
-                                  .map(reply => (
-                                    <div key={reply.id} className="comment-item nested">
-                                      <div className="comment-content">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                          {reply.content}
-                                        </ReactMarkdown>
-                                        <div className="comment-author">
-                                          <a href="#" className="author-link">{reply.profile?.username || 'User'}</a>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
                               </div>
                             ))}
-
-                            {/* Add comment form */}
-                            {user && (
-                              <div className="comment-form">
-                                <textarea
-                                  className="comment-input"
-                                  placeholder="Add a comment..."
-                                  value={commentTexts[botAnswer.answer.id] || ''}
-                                  onChange={(e) => setCommentTexts(prev => ({
-                                    ...prev,
-                                    [botAnswer.answer.id]: e.target.value
-                                  }))}
-                                  rows={3}
-                                />
-                                <div className="comment-actions">
-                                  <button
-                                    className="comment-submit-btn"
-                                    onClick={() => handleAddComment(botAnswer.answer.id)}
-                                    disabled={!commentTexts[botAnswer.answer.id]?.trim()}
-                                  >
-                                    Add Comment
-                                  </button>
-                                </div>
-                              </div>
-                            )}
                           </div>
-                        </div>
+                        )}
+
+                        {/* Add comment form for nested replies */}
+                        {user && (
+                          <div className="comment-form" style={{ marginTop: '12px' }}>
+                            <textarea
+                              className="comment-input"
+                              placeholder="Add a comment..."
+                              value={replyingToQuestion[comment.id] || ''}
+                              onChange={(e) => setReplyingToQuestion(prev => ({
+                                ...prev,
+                                [comment.id]: e.target.value
+                              }))}
+                              rows={3}
+                            />
+                            <div className="comment-actions">
+                              <button
+                                className="comment-submit-btn"
+                                onClick={() => handleAddQuestionComment(currentQuestion.id, comment.id)}
+                                disabled={!replyingToQuestion[comment.id]?.trim()}
+                              >
+                                Add Comment
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+                  </div>
+                )
+              })}
+
+              {/* Add answer form for questions */}
+              {user && (
+                <div className="comment-form" style={{ marginTop: '12px', marginBottom: '1.5rem' }}>
+                  <textarea
+                    className="comment-input"
+                    placeholder="Add an answer..."
+                    value={questionCommentText}
+                    onChange={(e) => setQuestionCommentText(e.target.value)}
+                    rows={3}
+                  />
+                  <div className="comment-actions">
+                    <button
+                      className="comment-submit-btn"
+                      onClick={() => handleAddQuestionComment(currentQuestion.id)}
+                      disabled={!questionCommentText.trim()}
+                    >
+                      Add Answer
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           ) : null}
-
-          {(isLoading || visibleAnswers.length > 0 || answers.length > 0 || error) && (
-            <section className="answer-section">
-              {error && (
-                <div className="error-message" style={{ padding: '1rem', color: 'red', marginBottom: '1rem' }}>
-                  {error}
-                </div>
-              )}
-              {isLoading && visibleAnswers.length === 0 && (
-                <div className="answer-card">
-                  <div className="answer-text" style={{ fontStyle: 'italic', color: '#666' }}>
-                    No one has answered.
-                  </div>
-                </div>
-              )}
-              {visibleAnswers.map((botAnswer) => (
-                <div key={botAnswer.answer.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
-                  <div className="answer-header">
-                    <div className="answer-votes">
-                      <button className="vote-button upvote">▲</button>
-                      <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
-                      <button className="vote-button downvote">▼</button>
-                    </div>
-                    <div className="answer-content">
-                      {isClosed && (
-                        <div className="closed-banner">Closed as duplicate · See: "RTFM #812"</div>
-                      )}
-                      <div className="answer-text">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {botAnswer.answerText || botAnswer.answer.content}
-                        </ReactMarkdown>
-                      </div>
-                      <div className="answer-footer">
-                        <div className="answer-author">
-                          <span>Answered by:</span>
-                          <a href="#" className="author-link">{botAnswer.botProfile.username}</a>
-                          <span className="author-badge" style={{
-                            marginLeft: '0.5rem',
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: '#e3f2fd',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem'
-                          }}>
-                            {botAnswer.botName}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </section>
-          )}
 
           <section className="stats-section">
             <div className="stat-card">
