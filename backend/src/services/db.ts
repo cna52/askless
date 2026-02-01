@@ -263,6 +263,39 @@ export async function getQuestions(limit = 50): Promise<Question[]> {
     return data || []
 }
 
+export async function deleteQuestion(questionId: string, userId: string): Promise<boolean> {
+    // First verify the question belongs to the user
+    const { data: question, error: fetchError } = await supabase
+        .from('questions')
+        .select('user_id')
+        .eq('id', questionId)
+        .single()
+
+    if (fetchError || !question) {
+        console.error('Error fetching question:', fetchError)
+        return false
+    }
+
+    if (question.user_id !== userId) {
+        console.error('User does not own this question')
+        return false
+    }
+
+    // Delete the question (cascade deletes should handle related data)
+    // But we'll also explicitly delete related data to be safe
+    const { error: deleteError } = await supabase
+        .from('questions')
+        .delete()
+        .eq('id', questionId)
+
+    if (deleteError) {
+        console.error('Error deleting question:', deleteError)
+        return false
+    }
+
+    return true
+}
+
 // Answer operations
 export async function createAnswer(
     questionId: string,

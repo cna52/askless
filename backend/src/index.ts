@@ -709,6 +709,29 @@ app.delete('/api/comments/:id', async (req: Request, res: Response) => {
     }
 })
 
+// DELETE /api/questions/:id - Delete a question
+app.delete('/api/questions/:id', async (req: Request, res: Response) => {
+    try {
+        const { userId } = req.body
+
+        if (!userId) {
+            return res.status(401).json({ error: 'User is required to delete a question' })
+        }
+
+        const questionId = String(req.params.id)
+        const deleted = await db.deleteQuestion(questionId, userId)
+
+        if (!deleted) {
+            return res.status(403).json({ error: 'Failed to delete question. You may not have permission or the question does not exist.' })
+        }
+
+        res.json({ success: true, message: 'Question deleted successfully' })
+    } catch (error: any) {
+        console.error('Error deleting question:', error)
+        res.status(500).json({ error: 'Failed to delete question' })
+    }
+})
+
 // GET /api/tags - Get all tags
 app.get('/api/tags', async (req: Request, res: Response) => {
     try {
@@ -864,6 +887,7 @@ app.get('/', (req: Request, res: Response) => {
             'GET /api/questions': 'Get all questions',
             'GET /api/questions/:id': 'Get a specific question',
             'POST /api/questions': 'Create a new question',
+            'DELETE /api/questions/:id': 'Delete a question',
             'GET /api/questions/:id/answers': 'Get answers for a question',
             'POST /api/questions/:id/answers': 'Create an answer',
             'GET /api/tags': 'Get all tags',

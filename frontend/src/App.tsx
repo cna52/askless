@@ -423,7 +423,7 @@ function App() {
 
   const handleSelectQuestion = useCallback((questionId: string) => {
     if (!questionId) return
-    window.location.hash = `#/questions/${questionId}`
+    window.location.hash = `#questions/${questionId}`
   }, [])
 
   // Check URL hash on mount and on hash change to handle profile and question links
@@ -433,16 +433,17 @@ function App() {
       if (hash === '#profile' && user) {
         setView('profile')
         loadUserProfile(user.id)
-      } else if (hash === '#/questions') {
+      } else if (hash === '#questions') {
         setCurrentPage('questions')
-      } else if (hash.startsWith('#/questions/')) {
-        const questionId = hash.replace('#/questions/', '')
+        setView('ask')
+      } else if (hash.startsWith('#questions/')) {
+        const questionId = hash.replace('#questions/', '')
         if (questionId) {
           loadQuestionById(questionId)
         }
         setCurrentPage('question')
         setView('question')
-      } else if (!hash || hash === '') {
+      } else if (!hash || hash === '' || hash === '#') {
         setView('ask')
         setCurrentPage('home')
       }
@@ -556,7 +557,7 @@ function App() {
 
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault()
-    window.location.hash = '#/'
+    window.location.hash = '#'
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -626,56 +627,40 @@ function App() {
         environmentMessage?: string
       }
 
-      // If we got a question back, navigate to question view
+      // If we got a question back, navigate to that question's page
       if (data.isDuplicate && data.originalQuestion) {
-        setCurrentQuestion(data.originalQuestion)
-        if (data.answers && Array.isArray(data.answers)) {
-          setAnswers(data.answers)
-        }
-        setView('question')
+        // Clear form and navigate to the original question page
+        setTitle('')
+        setBody('')
+        setTags('')
+        setSelectedTags([])
+        window.location.hash = `#questions/${data.originalQuestion.id}`
         setDuplicateNotice(
           [data.message, data.environmentMessage].filter(Boolean).join(' ')
         )
       } else if (data.question) {
-        setCurrentQuestion(data.question)
-        // Handle new format with multiple answers
-        if (data.answers && Array.isArray(data.answers)) {
-          setAnswers(data.answers)
-        }
-        // Clear form and switch to question view
+        // Clear form and navigate to the new question page
         setTitle('')
         setBody('')
         setTags('')
-        setView('question')
-        // Load question comments and comments for all answers
-        if (data.question) {
-          loadQuestionComments(data.question.id)
-          loadVoteCounts(data.question.id)
-        }
-        if (data.answers) {
-          data.answers.forEach(a => {
-            loadComments(a.answer.id)
-            loadVoteCounts(undefined, a.answer.id)
-          })
-        }
+        setSelectedTags([])
+        window.location.hash = `#questions/${data.question.id}`
       } else if (data.answers && Array.isArray(data.answers)) {
-        setAnswers(data.answers)
+        // Clear form and navigate to questions page
+        setTitle('')
+        setBody('')
+        setTags('')
+        setSelectedTags([])
+        setCurrentPage('questions')
+        window.location.hash = '#questions'
       } else if (data.answerText || data.answer?.content) {
-        // Fallback for old format (shouldn't happen but just in case)
-        setAnswers([{
-          answer: {
-            id: 'legacy',
-            content: data.answerText || data.answer?.content || '',
-            created_at: new Date().toISOString()
-          },
-          botProfile: {
-            id: 'legacy',
-            username: 'ai_assistant'
-          },
-          botName: 'AI Assistant',
-          botId: 'legacy',
-          answerText: data.answerText || data.answer?.content || ''
-        }])
+        // Clear form and navigate to questions page
+        setTitle('')
+        setBody('')
+        setTags('')
+        setSelectedTags([])
+        setCurrentPage('questions')
+        window.location.hash = '#questions'
       }
     } catch (err: any) {
       setError(err.message || 'Failed to submit question. Please try again.')
@@ -866,6 +851,40 @@ function App() {
     }
   }
 
+  const handleDeleteQuestion = async (questionId: string) => {
+    if (!user) {
+      setError('Please sign in to delete questions.')
+      return
+    }
+
+    if (!confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`${apiBase}/api/questions/${questionId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to delete question')
+      }
+
+      // Navigate back to home or questions page
+      setCurrentQuestion(null)
+      setView('ask')
+      setCurrentPage('home')
+      window.location.hash = '#'
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete question.')
+    }
+  }
+
   return (
     <div className="app">
       <header className="top-header">
@@ -923,7 +942,7 @@ function App() {
                 e.preventDefault()
                 setCurrentPage('home')
                 setView('ask')
-                window.location.hash = '#/'
+                window.location.hash = '#'
                 setMobileMenuOpen(false)
               }}
             >
@@ -934,7 +953,8 @@ function App() {
               className={`mobile-nav-item ${currentPage === 'questions' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                window.location.hash = '#/questions'
+                setCurrentPage('questions')
+                window.location.hash = '#questions'
                 setMobileMenuOpen(false)
               }}
             >
@@ -963,7 +983,7 @@ function App() {
                 e.preventDefault()
                 setCurrentPage('home')
                 setView('ask')
-                window.location.hash = '#/'
+                window.location.hash = '#'
               }}
             >
               Home
@@ -974,6 +994,7 @@ function App() {
               onClick={(e) => {
                 e.preventDefault()
                 setCurrentPage('questions')
+                window.location.hash = '#questions'
               }}
             >
               Questions
@@ -1077,39 +1098,84 @@ function App() {
                               <div className="profile-activity-list">
                                 {userActivity?.questions.map(question => (
                                   <div key={question.id} className="profile-activity-item">
-                                    <h3 className="profile-activity-item-title">
-                                      <a
-                                        href="#"
-                                        onClick={(e) => {
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                                      <div style={{ flex: 1 }}>
+                                        <h3 className="profile-activity-item-title">
+                                          <a
+                                            href="#"
+                                            onClick={(e) => {
+                                              e.preventDefault()
+                                              window.location.hash = `#questions/${question.id}`
+                                            }}
+                                          >
+                                            {question.title}
+                                          </a>
+                                        </h3>
+                                        <div className="profile-activity-item-meta">
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                            {question.tags && question.tags.length > 0 && (
+                                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                                {question.tags.map((tag: any) => (
+                                                  <span key={tag.id || tag.name} className="tag" style={{
+                                                    background: 'var(--so-blue-light)',
+                                                    color: 'var(--so-blue)',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '3px',
+                                                    fontSize: '12px'
+                                                  }}>
+                                                    {tag.name || tag}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
+                                              {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
+                                            </span>
+                                            <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={async (e) => {
                                           e.preventDefault()
-                                          window.location.hash = `#/questions/${question.id}`
+                                          e.stopPropagation()
+                                          if (confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
+                                            try {
+                                              const response = await fetch(`${apiBase}/api/questions/${question.id}`, {
+                                                method: 'DELETE',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                  userId: user?.id,
+                                                }),
+                                              })
+                                              if (response.ok) {
+                                                // Reload profile to refresh the list
+                                                if (user) {
+                                                  await loadUserProfile(user.id)
+                                                }
+                                              } else {
+                                                const errorData = await response.json().catch(() => ({}))
+                                                setError(errorData.error || 'Failed to delete question')
+                                              }
+                                            } catch (err: any) {
+                                              setError(err.message || 'Failed to delete question.')
+                                            }
+                                          }
+                                        }}
+                                        style={{
+                                          background: '#d32f2f',
+                                          color: 'white',
+                                          border: 'none',
+                                          padding: '6px 12px',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          fontSize: '12px',
+                                          fontWeight: '500',
+                                          whiteSpace: 'nowrap'
                                         }}
                                       >
-                                        {question.title}
-                                      </a>
-                                    </h3>
-                                    <div className="profile-activity-item-meta">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                        {question.tags && question.tags.length > 0 && (
-                                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                            {question.tags.map((tag: any) => (
-                                              <span key={tag.id || tag.name} className="tag" style={{
-                                                background: 'var(--so-blue-light)',
-                                                color: 'var(--so-blue)',
-                                                padding: '4px 8px',
-                                                borderRadius: '3px',
-                                                fontSize: '12px'
-                                              }}>
-                                                {tag.name || tag}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                        <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
-                                          {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
-                                        </span>
-                                        <span>{new Date(question.created_at).toLocaleDateString()}</span>
-                                      </div>
+                                        Delete
+                                      </button>
                                     </div>
                                   </div>
                                 ))}
@@ -1251,8 +1317,26 @@ function App() {
                 const question = currentQuestion as Question
                 return (
                   <section className="question-detail-section">
-                    <div className="question-header">
+                    <div className="question-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h1 className="question-title">{question.title}</h1>
+                      {user && currentQuestion?.user_id === user.id && (
+                        <button
+                          className="question-delete-btn"
+                          onClick={() => handleDeleteQuestion(question.id)}
+                          style={{
+                            background: '#d32f2f',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                          }}
+                        >
+                          Delete Question
+                        </button>
+                      )}
                     </div>
                     {duplicateNotice && (
                       <div className="closed-banner">{duplicateNotice}</div>
