@@ -104,6 +104,7 @@ function App() {
   const [error, setError] = useState('')
   const [availableTags, setAvailableTags] = useState<Array<{ id: number, name: string }>>([])
   const [selectedTags, setSelectedTags] = useState<number[]>([])
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
 
@@ -647,14 +648,19 @@ function App() {
   return (
     <div className="app">
       <header className="top-header">
-        <div className="header-left">
+        <div className="header-container">
+          <button
+            className="hamburger-menu"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            ☰
+          </button>
           <div className="logo">askless</div>
           <a href="#" className="header-link">Products</a>
-        </div>
-        <div className="header-search">
-          <input type="search" placeholder="Q Search..." className="search-input" />
-        </div>
-        <div className="header-right">
+          <div className="header-search">
+            <input type="search" placeholder="Q Search..." className="search-input" />
+          </div>
           {user ? (
             <div className="auth-user">
               <span className="auth-name clickable" onClick={handleProfileClick}>
@@ -682,9 +688,47 @@ function App() {
           <div className="header-icon">✉️</div>
           <div className="header-icon">🏆</div>
           <div className="header-icon">❓</div>
-          <div className="header-icon">☰</div>
         </div>
       </header>
+
+      {/* Mobile Menu */}
+      {mobileMenuOpen && (
+        <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <nav className="mobile-menu" onClick={(e) => e.stopPropagation()}>
+            <a
+              href="#"
+              className={`mobile-nav-item ${currentPage === 'home' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('home')
+                setMobileMenuOpen(false)
+              }}
+            >
+              Home
+            </a>
+            <a
+              href="#"
+              className={`mobile-nav-item ${currentPage === 'questions' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('questions')
+                setMobileMenuOpen(false)
+              }}
+            >
+              Questions
+            </a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>AI Assist</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Tags</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Saves</a>
+            <div className="mobile-nav-divider"></div>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Challenges</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Chat</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Articles</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Users</a>
+            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Companies</a>
+          </nav>
+        </div>
+      )}
 
       <div className="main-layout">
         <aside className="left-sidebar">
@@ -927,6 +971,27 @@ function App() {
                       <div className="form-counter">
                         {titleLength} / 150 {!isTitleValid && titleLength > 0 && (
                           <span className="form-error"> (minimum 15 characters)</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="body" className="form-label">
+                        Description <span className="required">*</span>
+                      </label>
+                      <p className="form-hint">
+                        Include all the information someone would need to answer your question. Min 20 characters.
+                      </p>
+                      <textarea
+                        id="body"
+                        className="form-textarea"
+                        placeholder="Describe your problem, what you've tried, and any relevant details..."
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                        rows={10}
+                      />
+                      <div className="form-counter">
+                        {bodyLength} {!isBodyValid && bodyLength > 0 && (
+                          <span className="form-error"> (minimum 20 characters)</span>
                         )}
                       </div>
                     </div>
