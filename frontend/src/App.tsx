@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import type { User } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -72,6 +72,13 @@ interface UserStats {
   answersCount: number
 }
 
+interface CachedQuestion {
+  question: Question
+  answers: BotAnswer[]
+  tags: string[]
+  cachedAt: number
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tabs'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
@@ -89,6 +96,7 @@ function App() {
   const [comments, setComments] = useState<Record<string, Comment[]>>({})
   const [questionComments, setQuestionComments] = useState<Comment[]>([])
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
+  const [currentQuestionTags, setCurrentQuestionTags] = useState<string[]>([])
   const [questionCommentText, setQuestionCommentText] = useState('')
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
@@ -109,8 +117,33 @@ function App() {
   const [availableTags, setAvailableTags] = useState<Array<{ id: number, name: string }>>([])
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const questionCacheRef = useRef<Map<string, CachedQuestion>>(new Map())
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
+
+  const QUESTION_CACHE_TTL = 5 * 60 * 1000
+  const QUESTION_CACHE_MAX = 8
+
+  const getCachedQuestion = (questionId: string) => {
+    const entry = questionCacheRef.current.get(questionId)
+    if (!entry) return null
+    if (Date.now() - entry.cachedAt > QUESTION_CACHE_TTL) {
+      questionCacheRef.current.delete(questionId)
+      return null
+    }
+    questionCacheRef.current.delete(questionId)
+    questionCacheRef.current.set(questionId, entry)
+    return entry
+  }
+
+  const setCachedQuestion = (questionId: string, entry: CachedQuestion) => {
+    questionCacheRef.current.delete(questionId)
+    questionCacheRef.current.set(questionId, entry)
+    if (questionCacheRef.current.size > QUESTION_CACHE_MAX) {
+      const oldestKey = questionCacheRef.current.keys().next().value
+      if (oldestKey) questionCacheRef.current.delete(oldestKey)
+    }
+  }
 
   const titleLength = title.trim().length
   const bodyLength = body.trim().length
@@ -363,65 +396,124 @@ function App() {
       setCurrentPage('question')
       setView('question')
       setCurrentQuestion(null)
+      setCurrentQuestionTags([])
       setAnswers([])
       setVisibleAnswers([])
       setComments({})
       setUpvotes({})
       setVoteCounts({})
       setUserVotes({})
-      const response = await fetch(`${apiBase}/api/questions/${questionId}`)
-      if (response.ok) {
-        const question = await response.json()
-        setCurrentQuestion(question)
-        setView('question')
 
-        // Load answers for this question
-        const answersResponse = await fetch(`${apiBase}/api/questions/${questionId}/answers`)
-        if (answersResponse.ok) {
-          const answers = await answersResponse.json()
-          // Transform answers to match BotAnswer format
-          const botAnswers = await Promise.all(answers.map(async (answer: any) => {
-            const profile = await fetch(`${apiBase}/api/users/${answer.user_id}/profile`)
-              .then(res => res.json())
-              .catch(() => null)
-            return {
-              answer: {
-                id: answer.id,
-                content: answer.content,
-                created_at: answer.created_at
-              },
-              botProfile: profile?.profile || {
-                id: answer.user_id,
-                username: 'Unknown'
-              },
-              botName: profile?.profile?.is_ai ? 'AI Assistant' : 'User',
-              botId: answer.user_id,
-              answerText: answer.content
-            }
-          }))
-          setAnswers(botAnswers)
+      const cached = getCachedQuestion(questionId)
+      if (cached) {
+        setCurrentQuestion(cached.question)
+        setCurrentQuestionTags(cached.tags)
+        setAnswers(cached.answers)
+        setVisibleAnswers(cached.answers)
+        setIsLoading(false)
 
-          // Load comments for the question and all answers
-          loadQuestionComments(questionId)
-          botAnswers.forEach((botAnswer: BotAnswer) => {
-            loadComments(botAnswer.answer.id)
-          })
+        loadQuestionComments(questionId)
+        loadVoteCounts(questionId)
+        cached.answers.forEach((botAnswer: BotAnswer) => {
+          loadComments(botAnswer.answer.id)
+          loadVoteCounts(undefined, botAnswer.answer.id)
+        })
+        return
+      }
 
-          // Load vote counts for question and answers
-          loadVoteCounts(questionId)
-          botAnswers.forEach((botAnswer: BotAnswer) => {
-            loadVoteCounts(undefined, botAnswer.answer.id)
-          })
-        }
-      } else {
+      const [questionResponse, answersResponse] = await Promise.all([
+        fetch(`${apiBase}/api/questions/${questionId}`),
+        fetch(`${apiBase}/api/questions/${questionId}/answers`),
+      ])
+
+      if (!questionResponse.ok) {
         console.error('Failed to load question')
+        return
+      }
+
+      const question = await questionResponse.json()
+      setCurrentQuestion(question)
+      setView('question')
+
+      const { data: tagRows, error: tagError } = await supabase
+        .from('question_tags')
+        .select('tags(name)')
+        .eq('question_id', questionId)
+
+      let tagNames: string[] = []
+      if (tagError) {
+        console.warn('Failed to load question tags:', tagError)
+      } else {
+        const names = (tagRows || [])
+          .map((row: any) => row.tags?.name)
+          .filter((name: string | undefined): name is string => Boolean(name))
+        setCurrentQuestionTags(names)
+        tagNames = names
+      }
+
+      if (answersResponse.ok) {
+        const answers = await answersResponse.json()
+        const userIds = Array.from(new Set(answers.map((answer: any) => answer.user_id)))
+
+        let profileMap = new Map<string, { id: string; username: string; avatar_url?: string; is_ai?: boolean }>()
+        if (userIds.length > 0) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url, is_ai')
+            .in('id', userIds)
+
+          if (profilesError) {
+            console.warn('Failed to load profiles for answers:', profilesError)
+          } else {
+            profileMap = new Map(profiles?.map(profile => [profile.id, profile]) || [])
+          }
+        }
+
+        const botAnswers = answers.map((answer: any) => {
+          const profile = profileMap.get(answer.user_id)
+          return {
+            answer: {
+              id: answer.id,
+              content: answer.content,
+              created_at: answer.created_at,
+            },
+            botProfile: profile || {
+              id: answer.user_id,
+              username: 'Unknown',
+            },
+            botName: profile?.is_ai ? 'AI Assistant' : 'User',
+            botId: answer.user_id,
+            answerText: answer.content,
+          }
+        })
+
+        setAnswers(botAnswers)
+
+        // Load comments for the question and all answers (async follow-ups)
+        loadQuestionComments(questionId)
+        botAnswers.forEach((botAnswer: BotAnswer) => {
+          loadComments(botAnswer.answer.id)
+        })
+
+        // Load vote counts for question and answers
+        loadVoteCounts(questionId)
+        botAnswers.forEach((botAnswer: BotAnswer) => {
+          loadVoteCounts(undefined, botAnswer.answer.id)
+        })
+
+        setCachedQuestion(questionId, {
+          question,
+          answers: botAnswers,
+          tags: tagNames,
+          cachedAt: Date.now(),
+        })
       }
     } catch (err) {
       console.error('Failed to load question:', err)
     } finally {
       setIsLoading(false)
     }
-  }, [apiBase, loadQuestionComments, loadComments])
+  }, [apiBase, loadQuestionComments, loadComments, loadVoteCounts])
 
   const handleSelectQuestion = useCallback((questionId: string) => {
     if (!questionId) return
@@ -1397,9 +1489,15 @@ function App() {
                         </div>
                         <div className="question-footer">
                           <div className="question-tags">
-                            {tags && tags.split(',').map((tag, i) => (
-                              <span key={i} className="tag">{tag.trim()}</span>
-                            ))}
+                            {(() => {
+                              const fallbackTags = Array.isArray(question.tags)
+                                ? question.tags.map((tag: any) => tag?.name || tag).filter(Boolean)
+                                : []
+                              const displayTags = currentQuestionTags.length > 0 ? currentQuestionTags : fallbackTags
+                              return displayTags.map((tag: string, i: number) => (
+                                <span key={`${tag}-${i}`} className="tag">{tag}</span>
+                              ))
+                            })()}
                           </div>
                           <div className="question-author">
                             <span>Asked by:</span>
@@ -1853,6 +1951,7 @@ function App() {
                     {/* Add answer form for questions */}
                     {user && (
                       <div className="comment-form" style={{ marginTop: '12px', marginBottom: '1.5rem' }}>
+                        <div className="answer-form-label">Your Answer</div>
                         <textarea
                           className="comment-input"
                           placeholder="Add an answer..."

@@ -550,6 +550,12 @@
 .answer-card {
   display: flex;
   gap: 16px;
+  background: #fff;
+  border: 1px solid var(--so-border);
+  border-radius: 4px;
+  padding: 18px 20px;
+  margin: 16px 0;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
 }
 
 .answer-header {
@@ -629,7 +635,14 @@
   font-size: 15px;
   line-height: 1.5;
   color: var(--so-text);
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+}
+
+.answer-form-label {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--so-text);
 }
 
 /* Markdown styling within answer text */
