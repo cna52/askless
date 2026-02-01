@@ -301,7 +301,7 @@ async function generateBotAnswer(
 // POST /api/ask - Generate answers from multiple bots and save to database (with duplicate detection)
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
-        const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl } = req.body
+        const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl, fast } = req.body
         if (!question || typeof question !== 'string' || question.trim() === '') {
             return res.status(400).json({ error: 'Question is required' })
         }
@@ -403,31 +403,47 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             return res.status(500).json({ error: 'Failed to save question to database' })
         }
 
-        // Generate answers from all bots in parallel
-        const botAnswers = await Promise.allSettled(
-            BOT_PERSONALITIES.map(bot => generateBotAnswer(bot, question.trim(), savedQuestion.id))
-        )
+        const runBots = async () => {
+            const botAnswers = await Promise.allSettled(
+                BOT_PERSONALITIES.map(bot => generateBotAnswer(bot, question.trim(), savedQuestion.id))
+            )
 
-        // Process results
-        const answers: Array<{
-            answer: db.Answer
-            botProfile: db.Profile
-            botName: string
-            botId: string
-        }> = []
+            const answers: Array<{
+                answer: db.Answer
+                botProfile: db.Profile
+                botName: string
+                botId: string
+            }> = []
 
-        botAnswers.forEach((result, index) => {
-            if (result.status === 'fulfilled' && result.value.answer && result.value.botProfile) {
-                answers.push({
-                    answer: result.value.answer,
-                    botProfile: result.value.botProfile,
-                    botName: BOT_PERSONALITIES[index].name,
-                    botId: BOT_PERSONALITIES[index].id
-                })
-            } else {
-                console.error(`Failed to generate answer for ${BOT_PERSONALITIES[index].name}:`, result.status === 'rejected' ? result.reason : result.value.error)
-            }
-        })
+            botAnswers.forEach((result, index) => {
+                if (result.status === 'fulfilled' && result.value.answer && result.value.botProfile) {
+                    answers.push({
+                        answer: result.value.answer,
+                        botProfile: result.value.botProfile,
+                        botName: BOT_PERSONALITIES[index].name,
+                        botId: BOT_PERSONALITIES[index].id
+                    })
+                } else {
+                    console.error(`Failed to generate answer for ${BOT_PERSONALITIES[index].name}:`, result.status === 'rejected' ? result.reason : result.value.error)
+                }
+            })
+
+            return answers
+        }
+
+        if (fast) {
+            runBots().catch((error) => {
+                console.error('Background bot generation failed:', error)
+            })
+            return res.json({
+                isDuplicate: false,
+                question: savedQuestion,
+                tags: tagNames,
+                queued: true
+            })
+        }
+
+        const answers = await runBots()
 
         if (answers.length === 0) {
             return res.status(500).json({

@@ -735,6 +735,7 @@ function App() {
           username,
           avatarUrl,
           tagIds: normalizedTagIds,
+          fast: true,
         }),
       })
 
