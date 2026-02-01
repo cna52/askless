@@ -1179,7 +1179,11 @@ function App() {
                           </div>
                           <div className="question-author">
                             <span>Asked by:</span>
-                            <a href="#" className="author-link">{user?.user_metadata?.full_name || user?.email || 'You'}</a>
+                            <a href="#" className="author-link">
+                              {user && currentQuestion?.user_id === user.id
+                                ? (user.user_metadata?.full_name || user.email || 'You')
+                                : 'Anonymous'}
+                            </a>
                           </div>
                         </div>
                       </div>
