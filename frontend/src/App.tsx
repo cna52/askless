@@ -71,7 +71,7 @@ interface UserStats {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question' | 'tags'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -107,8 +107,77 @@ function App() {
   const [availableTags, setAvailableTags] = useState<Array<{ id: number, name: string }>>([])
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [tagQuestions, setTagQuestions] = useState<Question[]>([])
+  const [tagLoading, setTagLoading] = useState(false)
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
+
+  const tagOptions = [
+    '.net',
+    'ajax',
+    'android',
+    'angular',
+    'api',
+    'arrays',
+    'asp.net',
+    'aws',
+    'c',
+    'c#',
+    'c++',
+    'css',
+    'database',
+    'dataframe',
+    'django',
+    'docker',
+    'express',
+    'flask',
+    'flutter',
+    'git',
+    'graphql',
+    'hooks',
+    'html',
+    'ios',
+    'java',
+    'javascript',
+    'jquery',
+    'json',
+    'kubernetes',
+    'linux',
+  ]
+
+  const tagDescriptions: Record<string, string> = {
+    '.net': 'Microsoft’s developer platform for building web, desktop, mobile, and cloud apps.',
+    ajax: 'Asynchronous JavaScript + XML/JSON for dynamic web updates without reloads.',
+    android: 'Google’s mobile OS and app development stack.',
+    angular: 'TypeScript-based web framework by Google.',
+    api: 'Design, usage, and integration of application programming interfaces.',
+    arrays: 'Working with indexed collections in code.',
+    'asp.net': 'Microsoft’s web framework for building server-side web apps.',
+    aws: 'Amazon Web Services cloud platform.',
+    c: 'Procedural, low-level systems programming language.',
+    'c#': 'Modern object-oriented language on .NET.',
+    'c++': 'High-performance systems language with OOP and templates.',
+    css: 'Styling and layout for the web.',
+    database: 'Data storage, querying, and modeling.',
+    dataframe: 'Tabular data structures (e.g., pandas).',
+    django: 'Python web framework for rapid development.',
+    docker: 'Containerization platform for packaging apps.',
+    express: 'Minimal Node.js web framework.',
+    flask: 'Lightweight Python web framework.',
+    flutter: 'Google’s UI toolkit for cross‑platform apps.',
+    git: 'Version control system.',
+    graphql: 'Query language for APIs.',
+    hooks: 'React Hooks for state and lifecycle in function components.',
+    html: 'Markup language for web pages.',
+    ios: 'Apple mobile OS and app development.',
+    java: 'JVM language for backend and Android.',
+    javascript: 'Programming language of the web.',
+    jquery: 'JavaScript library for DOM manipulation.',
+    json: 'Data interchange format.',
+    kubernetes: 'Container orchestration platform.',
+    linux: 'Open-source operating system and tooling.',
+  }
 
   const titleLength = title.trim().length
   const bodyLength = body.trim().length
@@ -421,6 +490,56 @@ function App() {
     }
   }, [apiBase, loadQuestionComments, loadComments])
 
+  const loadQuestionsForTag = useCallback(async (tagName: string) => {
+    setTagLoading(true)
+    try {
+      setSelectedTag(tagName)
+      setTagQuestions([])
+      const { data, error } = await supabase
+        .from('question_tags')
+        .select('question_id, questions(id, title, content, created_at, user_id), tags(name)')
+        .eq('tags.name', tagName)
+
+      if (error) {
+        console.error('Failed to load tag questions:', error)
+        return
+      }
+
+      const questions = (data || [])
+        .map((row: any) => row.questions)
+        .filter(Boolean)
+
+      const unique = new Map<string, Question>()
+      questions.forEach((q: Question) => {
+        unique.set(q.id, q)
+      })
+
+      const questionIds = Array.from(unique.keys())
+      if (questionIds.length > 0) {
+        const { data: answersData } = await supabase
+          .from('answers')
+          .select('question_id')
+          .in('question_id', questionIds)
+
+        const answerCountMap = new Map<string, number>()
+        answersData?.forEach((answer: any) => {
+          const id = answer.question_id
+          answerCountMap.set(id, (answerCountMap.get(id) || 0) + 1)
+        })
+
+        const enriched = questionIds.map((id) => {
+          const q = unique.get(id)!
+          return { ...q, answerCount: answerCountMap.get(id) || 0 }
+        })
+        setTagQuestions(enriched)
+      } else {
+        setTagQuestions([])
+      }
+    } finally {
+      setTagLoading(false)
+    }
+  }, [])
+
   const handleSelectQuestion = useCallback((questionId: string) => {
     if (!questionId) return
     window.location.hash = `#/questions/${questionId}`
@@ -435,6 +554,15 @@ function App() {
         loadUserProfile(user.id)
       } else if (hash === '#/questions') {
         setCurrentPage('questions')
+      } else if (hash === '#/tags') {
+        setCurrentPage('tags')
+        setSelectedTag(null)
+      } else if (hash.startsWith('#/tags/')) {
+        const tagName = decodeURIComponent(hash.replace('#/tags/', ''))
+        if (tagName) {
+          setCurrentPage('tags')
+          loadQuestionsForTag(tagName)
+        }
       } else if (hash.startsWith('#/questions/')) {
         const questionId = hash.replace('#/questions/', '')
         if (questionId) {
@@ -917,12 +1045,10 @@ function App() {
         <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)}>
           <nav className="mobile-menu" onClick={(e) => e.stopPropagation()}>
             <a
-              href="#"
+              href="#/"
               className={`mobile-nav-item ${currentPage === 'home' && view !== 'profile' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('home')
-                setView('ask')
                 window.location.hash = '#/'
                 setMobileMenuOpen(false)
               }}
@@ -930,7 +1056,7 @@ function App() {
               Home
             </a>
             <a
-              href="#"
+              href="#/questions"
               className={`mobile-nav-item ${currentPage === 'questions' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
@@ -941,7 +1067,17 @@ function App() {
               Questions
             </a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>AI Assist</a>
-            <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Tags</a>
+            <a
+              href="#/tags"
+              className={`mobile-nav-item ${currentPage === 'tags' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                window.location.hash = '#/tags'
+                setMobileMenuOpen(false)
+              }}
+            >
+              Tags
+            </a>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Saves</a>
             <div className="mobile-nav-divider"></div>
             <a href="#" className="mobile-nav-item" onClick={(e) => { e.preventDefault(); setMobileMenuOpen(false) }}>Challenges</a>
@@ -957,29 +1093,36 @@ function App() {
         <aside className="left-sidebar">
           <nav className="sidebar-nav">
             <a
-              href="#"
+              href="#/"
               className={`nav-item ${currentPage === 'home' && view !== 'profile' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('home')
-                setView('ask')
                 window.location.hash = '#/'
               }}
             >
               Home
             </a>
             <a
-              href="#"
+              href="#/questions"
               className={`nav-item ${currentPage === 'questions' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('questions')
+                window.location.hash = '#/questions'
               }}
             >
               Questions
             </a>
             <a href="#" className="nav-item">AI Assist</a>
-            <a href="#" className="nav-item">Tags</a>
+            <a
+              href="#/tags"
+              className={`nav-item ${currentPage === 'tags' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                window.location.hash = '#/tags'
+              }}
+            >
+              Tags
+            </a>
             <a href="#" className="nav-item">Saves</a>
             <div className="nav-divider"></div>
             <a href="#" className="nav-item">Challenges</a>
@@ -993,6 +1136,92 @@ function App() {
         <main className="content-area">
           {currentPage === 'questions' ? (
             <Questions onSelectQuestion={handleSelectQuestion} />
+          ) : currentPage === 'tags' ? (
+            <section className="tags-section">
+              <div className="questions-header">
+                <h1>Tags</h1>
+                <p className="questions-subtitle">Explore popular topics and technologies</p>
+              </div>
+              {!selectedTag ? (
+                <div className="tags-grid">
+                  {tagOptions.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className="tag-card"
+                      onClick={() => {
+                        window.location.hash = `#/tags/${encodeURIComponent(tag)}`
+                      }}
+                    >
+                      <span className="tag-chip">{tag}</span>
+                      <p className="tag-description">{tagDescriptions[tag] || 'Popular topic.'}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="tag-detail">
+                  <div className="tag-detail-header">
+                    <span className="tag-chip">{selectedTag}</span>
+                    <p className="tag-description">{tagDescriptions[selectedTag] || 'Popular topic.'}</p>
+                    <button
+                      type="button"
+                      className="tag-back"
+                      onClick={() => {
+                        window.location.hash = '#/tags'
+                      }}
+                    >
+                      Back to tags
+                    </button>
+                  </div>
+
+                  {tagLoading ? (
+                    <div className="questions-loading">Loading questions…</div>
+                  ) : tagQuestions.length === 0 ? (
+                    <div className="questions-empty">No questions tagged with {selectedTag} yet.</div>
+                  ) : (
+                    <div className="questions-grid">
+                      {tagQuestions.map((question) => (
+                        <div
+                          key={question.id}
+                          className="question-box"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => handleSelectQuestion(question.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              handleSelectQuestion(question.id)
+                            }
+                          }}
+                        >
+                          <div className="question-stats">
+                            <div className="stat-item">
+                              <div className="stat-number">{question.answerCount || 0}</div>
+                              <div className="stat-label">answers</div>
+                            </div>
+                          </div>
+                          <div className="question-content">
+                            <h3 className="question-title">
+                              <button
+                                type="button"
+                                className="question-link"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleSelectQuestion(question.id)
+                                }}
+                              >
+                                {question.title}
+                              </button>
+                            </h3>
+                            <p className="question-excerpt">{question.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
           ) : (
             <>
               {view === 'profile' ? (
