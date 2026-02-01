@@ -3,10 +3,10 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createHash } from 'crypto'
-import * as db from './services/db'
-import { supabase } from './lib/supabase'
-import { generateTags } from './services/tagGenerator'
-import { findSimilarQuestions, getOrCreateTags } from './services/questionSearch'
+import * as db from './services/db.js'
+import { supabase } from './lib/supabase.js'
+import { generateTags } from './services/tagGenerator.js'
+import { findSimilarQuestions, getOrCreateTags } from './services/questionSearch.js'
 
 dotenv.config()
 
