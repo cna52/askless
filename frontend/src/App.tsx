@@ -1182,210 +1182,212 @@ function App() {
         </aside>
 
         <main className="content-area">
-          {currentPage === 'questions' ? (
+          {view === 'profile' ? (
+            <>
+              <section className="profile-section">
+                {profileLoading ? (
+                  <div className="profile-loading">Loading profile...</div>
+                ) : userProfile ? (
+                  <>
+                    <div className="profile-header">
+                      <div className="profile-avatar">
+                        {userProfile.avatar_url ? (
+                          <img src={userProfile.avatar_url} alt={userProfile.username} />
+                        ) : (
+                          <div className="avatar-placeholder">
+                            {userProfile.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <div className="profile-info">
+                        <h1 className="profile-name">{userProfile.username}</h1>
+                        <div className="profile-meta">
+                          <span className="profile-meta-item">
+                            🎂 Member for {user ? Math.floor((Date.now() - new Date(user.created_at || Date.now()).getTime()) / (1000 * 60 * 60 * 24)) : 0} days
+                          </span>
+                          <span className="profile-meta-item">
+                            👁️ Last seen this week
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="profile-tabs">
+                      <button
+                        className={`profile-tab ${activeProfileTab === 'summary' ? 'active' : ''}`}
+                        onClick={() => setActiveProfileTab('summary')}
+                      >
+                        Profile
+                      </button>
+                      <button
+                        className={`profile-tab ${activeProfileTab === 'questions' ? 'active' : ''}`}
+                        onClick={() => setActiveProfileTab('questions')}
+                      >
+                        Activity
+                      </button>
+                      <button
+                        className={`profile-tab ${activeProfileTab === 'answers' ? 'active' : ''}`}
+                        onClick={() => setActiveProfileTab('answers')}
+                      >
+                        Answers
+                      </button>
+                    </div>
+
+                    <div className="profile-content">
+                      {activeProfileTab === 'summary' && (
+                        <div className="profile-summary">
+                          <div className="profile-stats-grid">
+                            <div className="profile-stat-card">
+                              <div className="profile-stat-value">{userStats?.questionsCount || 0}</div>
+                              <div className="profile-stat-label">Questions</div>
+                            </div>
+                            <div className="profile-stat-card">
+                              <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
+                              <div className="profile-stat-label">Answers</div>
+                            </div>
+                          </div>
+                          <div className="profile-summary-box">
+                            <div className="profile-summary-icon">📊</div>
+                            <h3>Reputation is how the community thanks you</h3>
+                            <p>When users upvote your helpful posts, you'll earn reputation and unlock new privileges.</p>
+                            <p className="profile-summary-link">
+                              Learn more about <a href="#">reputation</a> and <a href="#">privileges</a>
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {activeProfileTab === 'questions' && (
+                        <div className="profile-activity">
+                          <h2 className="profile-activity-title">Questions ({userActivity?.questions.length || 0})</h2>
+                          {userActivity?.questions.length === 0 ? (
+                            <div className="profile-empty">No questions yet.</div>
+                          ) : (
+                            <div className="profile-activity-list">
+                              {userActivity?.questions.map(question => (
+                                <div key={question.id} className="profile-activity-item">
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                                    <div style={{ flex: 1 }}>
+                                      <h3 className="profile-activity-item-title">
+                                        <a
+                                          href="#"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            window.location.hash = `#questions/${question.id}`
+                                          }}
+                                        >
+                                          {question.title}
+                                        </a>
+                                      </h3>
+                                      <div className="profile-activity-item-meta">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                          {question.tags && question.tags.length > 0 && (
+                                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                              {question.tags.map((tag: any) => (
+                                                <span key={tag.id || tag.name} className="tag" style={{
+                                                  background: 'var(--so-blue-light)',
+                                                  color: 'var(--so-blue)',
+                                                  padding: '4px 8px',
+                                                  borderRadius: '3px',
+                                                  fontSize: '12px'
+                                                }}>
+                                                  {tag.name || tag}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+                                          <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
+                                            {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
+                                          </span>
+                                          <span>{new Date(question.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={async (e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        if (confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
+                                          try {
+                                            const response = await fetch(`${apiBase}/api/questions/${question.id}`, {
+                                              method: 'DELETE',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({
+                                                userId: user?.id,
+                                              }),
+                                            })
+                                            if (response.ok) {
+                                              // Reload profile to refresh the list
+                                              if (user) {
+                                                await loadUserProfile(user.id)
+                                              }
+                                            } else {
+                                              const errorData = await response.json().catch(() => ({}))
+                                              setError(errorData.error || 'Failed to delete question')
+                                            }
+                                          } catch (err: any) {
+                                            setError(err.message || 'Failed to delete question.')
+                                          }
+                                        }
+                                      }}
+                                      style={{
+                                        background: '#d32f2f',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '6px 12px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        fontWeight: '500',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {activeProfileTab === 'answers' && (
+                        <div className="profile-activity">
+                          <h2 className="profile-activity-title">Answers ({userActivity?.answers.length || 0})</h2>
+                          {userActivity?.answers.length === 0 ? (
+                            <div className="profile-empty">No answers yet.</div>
+                          ) : (
+                            <div className="profile-activity-list">
+                              {userActivity?.answers.map(answer => (
+                                <div key={answer.id} className="profile-activity-item">
+                                  <div className="profile-activity-item-content">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                      {answer.content.substring(0, 200) + '...'}
+                                    </ReactMarkdown>
+                                  </div>
+                                  <div className="profile-activity-item-meta">
+                                    <span>{new Date(answer.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="profile-error">Profile not found</div>
+                )}
+              </section>
+            </>
+          ) : currentPage === 'questions' ? (
             <Questions onSelectQuestion={handleSelectQuestion} />
           ) : currentPage === 'tabs' ? (
             <Tabs onSelectQuestion={handleSelectQuestion} />
           ) : (
             <>
-              {view === 'profile' ? (
-                <section className="profile-section">
-                  {profileLoading ? (
-                    <div className="profile-loading">Loading profile...</div>
-                  ) : userProfile ? (
-                    <>
-                      <div className="profile-header">
-                        <div className="profile-avatar">
-                          {userProfile.avatar_url ? (
-                            <img src={userProfile.avatar_url} alt={userProfile.username} />
-                          ) : (
-                            <div className="avatar-placeholder">
-                              {userProfile.username.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="profile-info">
-                          <h1 className="profile-name">{userProfile.username}</h1>
-                          <div className="profile-meta">
-                            <span className="profile-meta-item">
-                              🎂 Member for {user ? Math.floor((Date.now() - new Date(user.created_at || Date.now()).getTime()) / (1000 * 60 * 60 * 24)) : 0} days
-                            </span>
-                            <span className="profile-meta-item">
-                              👁️ Last seen this week
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="profile-tabs">
-                        <button
-                          className={`profile-tab ${activeProfileTab === 'summary' ? 'active' : ''}`}
-                          onClick={() => setActiveProfileTab('summary')}
-                        >
-                          Profile
-                        </button>
-                        <button
-                          className={`profile-tab ${activeProfileTab === 'questions' ? 'active' : ''}`}
-                          onClick={() => setActiveProfileTab('questions')}
-                        >
-                          Activity
-                        </button>
-                        <button
-                          className={`profile-tab ${activeProfileTab === 'answers' ? 'active' : ''}`}
-                          onClick={() => setActiveProfileTab('answers')}
-                        >
-                          Answers
-                        </button>
-                      </div>
-
-                      <div className="profile-content">
-                        {activeProfileTab === 'summary' && (
-                          <div className="profile-summary">
-                            <div className="profile-stats-grid">
-                              <div className="profile-stat-card">
-                                <div className="profile-stat-value">{userStats?.questionsCount || 0}</div>
-                                <div className="profile-stat-label">Questions</div>
-                              </div>
-                              <div className="profile-stat-card">
-                                <div className="profile-stat-value">{userStats?.answersCount || 0}</div>
-                                <div className="profile-stat-label">Answers</div>
-                              </div>
-                            </div>
-                            <div className="profile-summary-box">
-                              <div className="profile-summary-icon">📊</div>
-                              <h3>Reputation is how the community thanks you</h3>
-                              <p>When users upvote your helpful posts, you'll earn reputation and unlock new privileges.</p>
-                              <p className="profile-summary-link">
-                                Learn more about <a href="#">reputation</a> and <a href="#">privileges</a>
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {activeProfileTab === 'questions' && (
-                          <div className="profile-activity">
-                            <h2 className="profile-activity-title">Questions ({userActivity?.questions.length || 0})</h2>
-                            {userActivity?.questions.length === 0 ? (
-                              <div className="profile-empty">No questions yet.</div>
-                            ) : (
-                              <div className="profile-activity-list">
-                                {userActivity?.questions.map(question => (
-                                  <div key={question.id} className="profile-activity-item">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-                                      <div style={{ flex: 1 }}>
-                                        <h3 className="profile-activity-item-title">
-                                          <a
-                                            href="#"
-                                            onClick={(e) => {
-                                              e.preventDefault()
-                                              window.location.hash = `#questions/${question.id}`
-                                            }}
-                                          >
-                                            {question.title}
-                                          </a>
-                                        </h3>
-                                        <div className="profile-activity-item-meta">
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                            {question.tags && question.tags.length > 0 && (
-                                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                                {question.tags.map((tag: any) => (
-                                                  <span key={tag.id || tag.name} className="tag" style={{
-                                                    background: 'var(--so-blue-light)',
-                                                    color: 'var(--so-blue)',
-                                                    padding: '4px 8px',
-                                                    borderRadius: '3px',
-                                                    fontSize: '12px'
-                                                  }}>
-                                                    {tag.name || tag}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            )}
-                                            <span style={{ color: 'var(--so-text-muted)', fontSize: '13px' }}>
-                                              {question.answerCount || 0} {question.answerCount === 1 ? 'answer' : 'answers'}
-                                            </span>
-                                            <span>{new Date(question.created_at).toLocaleDateString()}</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <button
-                                        onClick={async (e) => {
-                                          e.preventDefault()
-                                          e.stopPropagation()
-                                          if (confirm('Are you sure you want to delete this question? This action cannot be undone.')) {
-                                            try {
-                                              const response = await fetch(`${apiBase}/api/questions/${question.id}`, {
-                                                method: 'DELETE',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                  userId: user?.id,
-                                                }),
-                                              })
-                                              if (response.ok) {
-                                                // Reload profile to refresh the list
-                                                if (user) {
-                                                  await loadUserProfile(user.id)
-                                                }
-                                              } else {
-                                                const errorData = await response.json().catch(() => ({}))
-                                                setError(errorData.error || 'Failed to delete question')
-                                              }
-                                            } catch (err: any) {
-                                              setError(err.message || 'Failed to delete question.')
-                                            }
-                                          }
-                                        }}
-                                        style={{
-                                          background: '#d32f2f',
-                                          color: 'white',
-                                          border: 'none',
-                                          padding: '6px 12px',
-                                          borderRadius: '4px',
-                                          cursor: 'pointer',
-                                          fontSize: '12px',
-                                          fontWeight: '500',
-                                          whiteSpace: 'nowrap'
-                                        }}
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {activeProfileTab === 'answers' && (
-                          <div className="profile-activity">
-                            <h2 className="profile-activity-title">Answers ({userActivity?.answers.length || 0})</h2>
-                            {userActivity?.answers.length === 0 ? (
-                              <div className="profile-empty">No answers yet.</div>
-                            ) : (
-                              <div className="profile-activity-list">
-                                {userActivity?.answers.map(answer => (
-                                  <div key={answer.id} className="profile-activity-item">
-                                    <div className="profile-activity-item-content">
-                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {answer.content.substring(0, 200) + '...'}
-                                      </ReactMarkdown>
-                                    </div>
-                                    <div className="profile-activity-item-meta">
-                                      <span>{new Date(answer.created_at).toLocaleDateString()}</span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="profile-error">Profile not found</div>
-                  )}
-                </section>
-              ) : view === 'ask' ? (
+              {view === 'ask' ? (
                 <section className="question-form-section">
                   <h1 className="question-form-title">Ask a question</h1>
                   <form className="question-form" onSubmit={handleSubmit}>
@@ -2055,7 +2057,7 @@ function App() {
         </main>
 
         <aside className="right-sidebar">
-          {view === 'ask' ? (
+          {currentPage === 'home' && view === 'ask' ? (
             <>
               <div className="sidebar-widget draft-guide">
                 <h3 className="widget-title">Draft your question</h3>
