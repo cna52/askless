@@ -90,6 +90,7 @@ function App() {
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
+  const [isClosed, setIsClosed] = useState(false)
   const [duplicateNotice, setDuplicateNotice] = useState('')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'summarize': true,
@@ -725,6 +726,54 @@ function App() {
                           </div>
                         </div>
                       </div>
+              {view === 'ask' ? (
+            <section className="question-form-section">
+              <h1 className="question-form-title">Ask a question</h1>
+              <form className="question-form" onSubmit={handleSubmit}>
+                <div className="form-group">
+                  <label htmlFor="title" className="form-label">
+                    Title <span className="required">*</span>
+                  </label>
+                  <p className="form-hint">
+                    Be specific and imagine you're asking a question to another person. Min 15 characters.
+                  </p>
+                  <input
+                    id="title"
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. How do I center a div in CSS?"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    maxLength={150}
+                  />
+                  <div className="form-counter">
+                    {titleLength} / 150 {!isTitleValid && titleLength > 0 && (
+                      <span className="form-error"> (minimum 15 characters)</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="body" className="form-label">
+                    Body <span className="required">*</span>
+                  </label>
+                  <p className="form-hint">
+                    Include all the information someone would need to answer your question. Min 20 characters.
+                  </p>
+                  <textarea
+                    id="body"
+                    className="form-textarea"
+                    placeholder="Describe your question in detail..."
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={10}
+                  />
+                  <div className="form-counter">
+                    {bodyLength} characters {!isBodyValid && bodyLength > 0 && (
+                      <span className="form-error"> (minimum 20 characters)</span>
+                    )}
+                  </div>
+                </div>
 
                       <div className="profile-tabs">
                         <button
@@ -904,6 +953,79 @@ function App() {
                         )}
                       </div>
                     </div>
+                <div className="tag-selection-wrapper">
+                  <label className="tag-selection-label">Select tags (up to 5):</label>
+                  <div className="tag-grid">
+                    {availableTags.slice(0, 30).map(tag => (
+                      <label key={tag.id} className="tag-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.includes(tag.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              if (selectedTags.length < 5) {
+                                setSelectedTags([...selectedTags, tag.id])
+                              }
+                            } else {
+                              setSelectedTags(selectedTags.filter(id => id !== tag.id))
+                            }
+                          }}
+                        />
+                        <span className="tag-name">{tag.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedTags.length > 0 && (
+                    <div className="selected-tags">
+                      <strong>Selected:</strong>
+                      {selectedTags.map(id => {
+                        const tag = availableTags.find(t => t.id === id)
+                        return tag ? <span key={id} className="tag-badge">{tag.name}</span> : null
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {error && (
+                  <div className="form-error-message">{error}</div>
+                )}
+
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    className="submit-button"
+                    disabled={!canSubmit}
+                  >
+                    {isLoading ? 'Posting...' : 'Post your question'}
+                  </button>
+                  {!user && (
+                    <p className="form-hint" style={{ marginTop: '0.5rem' }}>
+                      Please sign in to ask a question.
+                    </p>
+                  )}
+                </div>
+              </form>
+            </section>
+          ) : currentQuestion ? (
+            <section className="question-detail-section">
+              <div className="question-header">
+                <h1 className="question-title">{currentQuestion.title}</h1>
+                <button
+                  className="ask-question-link"
+                  onClick={() => {
+                    setView('ask')
+                    setCurrentQuestion(null)
+                    setAnswers([])
+                    setVisibleAnswers([])
+                    setComments({})
+                  }}
+                >
+                  Ask Question
+                </button>
+              </div>
+              {duplicateNotice && (
+                <div className="closed-banner">{duplicateNotice}</div>
+              )}
 
                     <div className="form-group">
                       <label htmlFor="body" className="form-label">
@@ -1498,6 +1620,36 @@ function App() {
                   <button className="stat-button">Customize your feed</button>
                 </div>
               </section>
+            </>
+          ) : (
+            <Questions />
+          )}
+
+          <section className="stats-section">
+            <div className="stat-card">
+              <div className="stat-value">
+                {visibleAnswers.length > 0
+                  ? Object.values(upvotes).reduce((sum, val) => sum + val, 0)
+                  : 0
+                }
+              </div>
+              <div className="stat-label">Reputation</div>
+              <p className="stat-description">Earn reputation by Asking, Answering & Editing.</p>
+            </div>
+            <div className="stat-card">
+              <div className="stat-title">Badge progress</div>
+              <p className="stat-description">Take the tour to earn your first badge!</p>
+              <button className="stat-button">Get started here</button>
+            </div>
+            <div className="stat-card">
+              <div className="stat-title">
+                Watched tags
+                <span className="stat-icon">⚙️</span>
+              </div>
+              <p className="stat-description">You're not watching any tags yet!</p>
+              <button className="stat-button">Customize your feed</button>
+            </div>
+          </section>
             </>
           ) : (
             <Questions />

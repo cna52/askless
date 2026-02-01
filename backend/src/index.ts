@@ -334,6 +334,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 .select('name')
                 .in('id', tagIds)
 
+            
             tagNames = selectedTags?.map(t => t.name) || []
             console.log('User selected tags:', tagNames)
         } else {
