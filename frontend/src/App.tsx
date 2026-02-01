@@ -97,6 +97,7 @@ function App() {
   const [questionComments, setQuestionComments] = useState<Comment[]>([])
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
   const [currentQuestionTags, setCurrentQuestionTags] = useState<string[]>([])
+  const [currentQuestionAuthor, setCurrentQuestionAuthor] = useState<UserProfile | null>(null)
   const [questionCommentText, setQuestionCommentText] = useState('')
   const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [replyingToQuestion, setReplyingToQuestion] = useState<Record<string, string>>({})
@@ -396,6 +397,7 @@ function App() {
       setCurrentPage('question')
       setView('question')
       setCurrentQuestion(null)
+      setCurrentQuestionAuthor(null)
       setCurrentQuestionTags([])
       setAnswers([])
       setVisibleAnswers([])
@@ -411,6 +413,20 @@ function App() {
         setAnswers(cached.answers)
         setVisibleAnswers(cached.answers)
         setIsLoading(false)
+
+        if (cached.question?.user_id) {
+          try {
+            const authorResponse = await fetch(`${apiBase}/api/users/${cached.question.user_id}/profile`)
+            if (authorResponse.ok) {
+              const authorData = await authorResponse.json()
+              setCurrentQuestionAuthor(authorData?.profile || null)
+            } else {
+              setCurrentQuestionAuthor(null)
+            }
+          } catch (err) {
+            setCurrentQuestionAuthor(null)
+          }
+        }
 
         loadQuestionComments(questionId)
         loadVoteCounts(questionId)
@@ -434,6 +450,20 @@ function App() {
       const question = await questionResponse.json()
       setCurrentQuestion(question)
       setView('question')
+
+      if (question?.user_id) {
+        try {
+          const authorResponse = await fetch(`${apiBase}/api/users/${question.user_id}/profile`)
+          if (authorResponse.ok) {
+            const authorData = await authorResponse.json()
+            setCurrentQuestionAuthor(authorData?.profile || null)
+          } else {
+            setCurrentQuestionAuthor(null)
+          }
+        } catch (err) {
+          setCurrentQuestionAuthor(null)
+        }
+      }
 
       const { data: tagRows, error: tagError } = await supabase
         .from('question_tags')
@@ -1502,9 +1532,7 @@ function App() {
                           <div className="question-author">
                             <span>Asked by:</span>
                             <a href="#" className="author-link">
-                              {user && currentQuestion?.user_id === user.id
-                                ? (user.user_metadata?.full_name || user.email || 'You')
-                                : 'Anonymous'}
+                              {currentQuestionAuthor?.username || 'Anonymous'}
                             </a>
                           </div>
                         </div>
