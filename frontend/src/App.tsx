@@ -71,7 +71,7 @@ interface UserStats {
 }
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'questions'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions' | 'question'>('home')
   const [view, setView] = useState<'ask' | 'question' | 'profile'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -267,6 +267,15 @@ function App() {
   const loadQuestionById = useCallback(async (questionId: string) => {
     setIsLoading(true)
     try {
+      setError('')
+      setDuplicateNotice('')
+      setCurrentPage('question')
+      setView('question')
+      setCurrentQuestion(null)
+      setAnswers([])
+      setVisibleAnswers([])
+      setComments({})
+      setUpvotes({})
       const response = await fetch(`${apiBase}/api/questions/${questionId}`)
       if (response.ok) {
         const question = await response.json()
@@ -315,6 +324,11 @@ function App() {
     }
   }, [apiBase, loadQuestionComments, loadComments])
 
+  const handleSelectQuestion = useCallback((questionId: string) => {
+    if (!questionId) return
+    window.location.hash = `#/questions/${questionId}`
+  }, [])
+
   // Check URL hash on mount and on hash change to handle profile and question links
   useEffect(() => {
     const checkHash = () => {
@@ -322,11 +336,15 @@ function App() {
       if (hash === '#profile' && user) {
         setView('profile')
         loadUserProfile(user.id)
-      } else if (hash.startsWith('#question/')) {
-        const questionId = hash.replace('#question/', '')
+      } else if (hash === '#/questions') {
+        setCurrentPage('questions')
+      } else if (hash.startsWith('#/questions/')) {
+        const questionId = hash.replace('#/questions/', '')
         if (questionId) {
           loadQuestionById(questionId)
         }
+        setCurrentPage('question')
+        setView('question')
       } else if (!hash || hash === '') {
         setView('ask')
         setCurrentPage('home')
@@ -441,7 +459,7 @@ function App() {
 
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault()
-    window.location.hash = ''
+    window.location.hash = '#/'
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -806,7 +824,7 @@ function App() {
                 e.preventDefault()
                 setCurrentPage('home')
                 setView('ask')
-                window.location.hash = ''
+                window.location.hash = '#/'
                 setMobileMenuOpen(false)
               }}
             >
@@ -817,7 +835,7 @@ function App() {
               className={`mobile-nav-item ${currentPage === 'questions' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
-                setCurrentPage('questions')
+                window.location.hash = '#/questions'
                 setMobileMenuOpen(false)
               }}
             >
@@ -846,7 +864,7 @@ function App() {
                 e.preventDefault()
                 setCurrentPage('home')
                 setView('ask')
-                window.location.hash = ''
+                window.location.hash = '#/'
               }}
             >
               Home
@@ -874,7 +892,9 @@ function App() {
         </aside>
 
         <main className="content-area">
-          {currentPage === 'home' ? (
+          {currentPage === 'questions' ? (
+            <Questions onSelectQuestion={handleSelectQuestion} />
+          ) : (
             <>
               {view === 'profile' ? (
                 <section className="profile-section">
@@ -963,7 +983,7 @@ function App() {
                                         href="#"
                                         onClick={(e) => {
                                           e.preventDefault()
-                                          window.location.hash = `#question/${question.id}`
+                                          window.location.hash = `#/questions/${question.id}`
                                         }}
                                       >
                                         {question.title}
@@ -1601,7 +1621,11 @@ function App() {
                     )}
                   </section>
                 )
-              })() : null}
+              })() : (
+                <section className="question-detail-section">
+                  <div className="questions-loading">Loading question...</div>
+                </section>
+              )}
 
               <section className="stats-section">
                 <div className="stat-card">
@@ -1629,8 +1653,6 @@ function App() {
                 </div>
               </section>
             </>
-          ) : (
-            <Questions />
           )}
         </main>
 

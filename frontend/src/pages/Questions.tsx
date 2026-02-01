@@ -5,6 +5,8 @@ export interface Question {
   id: string
   title: string
   content: string
+  created_at: string
+  user_id: string
   author: string
   answers: number
   views: number
@@ -33,7 +35,7 @@ function formatRelativeTime(dateString: string): string {
   return `${years}y ago`
 }
 
-export function Questions() {
+export function Questions({ onSelectQuestion }: { onSelectQuestion?: (questionId: string) => void }) {
   const [questions, setQuestions] = useState<Question[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -53,7 +55,6 @@ export function Questions() {
             content,
             created_at,
             user_id,
-            answers (id),
             question_tags (
               tag_id,
               tags (name)
@@ -83,25 +84,37 @@ export function Questions() {
 
         const profileMap = new Map(profilesData?.map((p: any) => [p.id, p.username]) || [])
 
-        // Transform the data to match our Question interface
-        const transformedQuestions: Question[] = questionsData.map((q: any) => {
-          // Deduplicate answers by ID to prevent counting duplicates from joins
-          const uniqueAnswers = q.answers
-            ? Array.from(new Map(q.answers.map((a: any) => [a.id, a])).values())
-            : []
+        // Fetch answer counts for these questions in one query
+        const questionIds = questionsData.map((q: any) => q.id)
+        const { data: answersData, error: answersError } = await supabase
+          .from('answers')
+          .select('question_id')
+          .in('question_id', questionIds)
 
-          return {
-            id: q.id,
-            title: q.title,
-            content: q.content,
-            author: profileMap.get(q.user_id) || 'Anonymous',
-            answers: uniqueAnswers.length,
-            views: Math.floor(Math.random() * 2000) + 100, // Placeholder - not in schema
-            votes: Math.floor(Math.random() * 200), // Placeholder - not in schema
-            tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || [],
-            created: formatRelativeTime(q.created_at),
-          }
+        if (answersError) {
+          console.warn('Error fetching answers:', answersError)
+        }
+
+        const answerCountMap = new Map<string, number>()
+        answersData?.forEach((answer: any) => {
+          const id = answer.question_id
+          answerCountMap.set(id, (answerCountMap.get(id) || 0) + 1)
         })
+
+        // Transform the data to match our Question interface
+        const transformedQuestions: Question[] = questionsData.map((q: any) => ({
+          id: q.id,
+          title: q.title,
+          content: q.content,
+          created_at: q.created_at,
+          user_id: q.user_id,
+          author: profileMap.get(q.user_id) || 'Anonymous',
+          answers: answerCountMap.get(q.id) || 0,
+          views: Math.floor(Math.random() * 2000) + 100, // Placeholder - not in schema
+          votes: Math.floor(Math.random() * 200), // Placeholder - not in schema
+          tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || [],
+          created: formatRelativeTime(q.created_at),
+        }))
 
         setQuestions(transformedQuestions)
       } catch (err) {
@@ -160,7 +173,20 @@ export function Questions() {
 
       <div className="questions-grid">
         {questions.map((question: Question) => (
-          <div key={question.id} className="question-box">
+          <div
+            key={question.id}
+            className="question-box"
+            role={onSelectQuestion ? 'button' : undefined}
+            tabIndex={onSelectQuestion ? 0 : undefined}
+            onClick={() => onSelectQuestion?.(question.id)}
+            onKeyDown={(event) => {
+              if (!onSelectQuestion) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSelectQuestion(question.id)
+              }
+            }}
+          >
             <div className="question-stats">
               <div className="stat-item">
                 <div className="stat-number">{question.votes}</div>
@@ -177,7 +203,18 @@ export function Questions() {
             </div>
 
             <div className="question-content">
-              <h3 className="question-title">{question.title}</h3>
+              <h3 className="question-title">
+                <button
+                  type="button"
+                  className="question-link"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onSelectQuestion?.(question.id)
+                  }}
+                >
+                  {question.title}
+                </button>
+              </h3>
               <p className="question-excerpt">{question.content}</p>
 
               <div className="question-meta">

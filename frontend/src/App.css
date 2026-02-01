@@ -2185,6 +2185,16 @@
   transition: color 0.2s;
 }
 
+.question-link {
+  all: unset;
+  cursor: pointer;
+  color: inherit;
+}
+
+.question-link:hover {
+  text-decoration: underline;
+}
+
 .question-box:hover .question-title {
   color: var(--so-blue-dark);
 }
