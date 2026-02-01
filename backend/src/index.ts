@@ -101,7 +101,7 @@ if (process.env.GEMINI_API_KEY) {
     }
 }
 
-// GET /api/config - Retrieve current configuration
+// GET /api/config
 app.get('/api/config', (req: Request, res: Response) => {
     if (!config) {
         return res.json({
@@ -111,12 +111,12 @@ app.get('/api/config', (req: Request, res: Response) => {
     }
 
     res.json({
-        apiKey: config.apiKey ? '***' : '', // Don't send the actual key back
+        apiKey: config.apiKey ? '***' : '',
         hasApiKey: !!config.apiKey
     })
 })
 
-// POST /api/config - Update configuration
+// POST /api/config
 app.post('/api/config', (req: Request, res: Response) => {
     const { apiKey } = req.body
 
@@ -329,7 +329,6 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         let tagNames: string[] = []
 
         if (tagIds && tagIds.length > 0) {
-            // Get tag names from IDs
             const { data: selectedTags } = await supabase
                 .from('tags')
                 .select('name')
@@ -338,10 +337,17 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             tagNames = selectedTags?.map(t => t.name) || []
             console.log('User selected tags:', tagNames)
         } else {
-            console.log('No tags selected by user')
+            console.log('No tags selected by user, generating tags...')
+            try {
+                tagNames = await generateTags(questionTitle, question.trim(), config.apiKey)
+                console.log('Generated tags:', tagNames)
+            } catch (error: any) {
+                console.warn('Tag generation failed:', error?.message || error)
+                tagNames = []
+            }
         }
 
-        // Search for similar questions
+        // 🔍 Search for similar questions
         console.log('🔍 Searching for similar questions...')
         const similarQuestions = await findSimilarQuestions(tagNames)
 
@@ -373,7 +379,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 answers: existingAnswers,
                 answerText: existingAnswers[0]?.content || 'Answer not found',
                 similarQuestions: similarQuestions.slice(0, 5),
-                environmentMessage: `🌱 You just saved ${(Math.random() * 0.5 + 0.1).toFixed(2)}kg of CO2 by reusing an answer!`,
+                environmentMessage: `🌱 You just saved ${(Math.random() * 0.5 + 0.1).toFixed(2)}kg of CO2 by reusing answers!`,
                 tags: tagNames
             })
         }
@@ -480,13 +486,13 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             })
         }
         res.status(500).json({
-            error: 'Failed to generate answer. Please try again.',
+            error: 'Failed to generate answers. Please try again.',
             details: error.message
         })
     }
 })
 
-// GET /api/questions - Get all questions
+// GET /api/questions
 app.get('/api/questions', async (req: Request, res: Response) => {
     try {
         const limit = parseInt(req.query.limit as string) || 50
@@ -498,7 +504,7 @@ app.get('/api/questions', async (req: Request, res: Response) => {
     }
 })
 
-// GET /api/questions/:id - Get a specific question
+// GET /api/questions/:id
 app.get('/api/questions/:id', async (req: Request, res: Response) => {
     try {
         const questionId = String(req.params.id)  // ← FIX: Convert to string
@@ -513,7 +519,7 @@ app.get('/api/questions/:id', async (req: Request, res: Response) => {
     }
 })
 
-// POST /api/questions - Create a new question
+// POST /api/questions
 app.post('/api/questions', async (req: Request, res: Response) => {
     try {
         const { userId, title, content, tagIds, username, avatarUrl } = req.body
@@ -544,7 +550,7 @@ app.post('/api/questions', async (req: Request, res: Response) => {
     }
 })
 
-// GET /api/questions/:id/answers - Get answers for a question
+// GET /api/questions/:id/answers
 app.get('/api/questions/:id/answers', async (req: Request, res: Response) => {
     try {
         const answers = await db.getAnswersForQuestion(req.params.id)
@@ -713,7 +719,7 @@ app.get('/api/tags', async (req: Request, res: Response) => {
     }
 })
 
-// POST /api/tags - Create a new tag
+// POST /api/tags
 app.post('/api/tags', async (req: Request, res: Response) => {
     try {
         const { name } = req.body
@@ -734,7 +740,7 @@ app.post('/api/tags', async (req: Request, res: Response) => {
     }
 })
 
-// GET /api/top-searched - Get most reused questions
+// GET /api/top-searched
 app.get('/api/top-searched', async (req: Request, res: Response) => {
     try {
         const limitParam = req.query.limit
@@ -759,7 +765,6 @@ app.get('/api/top-searched', async (req: Request, res: Response) => {
 
         if (error) throw error
 
-        // Format response
         const formatted = data?.map(q => ({
             ...q,
             tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || []  // ← FIX: Use 'any' type
@@ -797,7 +802,7 @@ app.get('/', (req: Request, res: Response) => {
             'GET /api/top-searched': 'Get most reused questions (sustainability feature)' // ← ADD THIS
         },
         hasApiKey: !!config?.apiKey,
-        note: 'This is an API server. Access the frontend UI at http://localhost:5173 (or the port shown when you run "npm run dev" in the frontend folder)'
+        botCount: BOT_PERSONALITIES.length
     })
 })
 
@@ -883,7 +888,7 @@ app.listen(PORT, async () => {
     if (config?.apiKey) {
         console.log('✅ Gemini API key configured')
     } else {
-        console.log('⚠️  Gemini API key not configured. Set it via POST /api/config or GEMINI_API_KEY env variable')
+        console.log('⚠️  Gemini API key not configured')
     }
 
     // Test Supabase connection
