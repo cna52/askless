@@ -242,13 +242,69 @@ function App() {
     }
   }, [apiBase])
 
-  // Check URL hash on mount and on hash change to handle profile links
+  const loadQuestionById = useCallback(async (questionId: string) => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${apiBase}/api/questions/${questionId}`)
+      if (response.ok) {
+        const question = await response.json()
+        setCurrentQuestion(question)
+        setView('question')
+
+        // Load answers for this question
+        const answersResponse = await fetch(`${apiBase}/api/questions/${questionId}/answers`)
+        if (answersResponse.ok) {
+          const answers = await answersResponse.json()
+          // Transform answers to match BotAnswer format
+          const botAnswers = await Promise.all(answers.map(async (answer: any) => {
+            const profile = await fetch(`${apiBase}/api/users/${answer.user_id}/profile`)
+              .then(res => res.json())
+              .catch(() => null)
+            return {
+              answer: {
+                id: answer.id,
+                content: answer.content,
+                created_at: answer.created_at
+              },
+              botProfile: profile?.profile || {
+                id: answer.user_id,
+                username: 'Unknown'
+              },
+              botName: profile?.profile?.is_ai ? 'AI Assistant' : 'User',
+              botId: answer.user_id,
+              answerText: answer.content
+            }
+          }))
+          setAnswers(botAnswers)
+
+          // Load comments for the question and all answers
+          loadQuestionComments(questionId)
+          botAnswers.forEach((botAnswer: BotAnswer) => {
+            loadComments(botAnswer.answer.id)
+          })
+        }
+      } else {
+        console.error('Failed to load question')
+      }
+    } catch (err) {
+      console.error('Failed to load question:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [apiBase, loadQuestionComments, loadComments])
+
+  // Check URL hash on mount and on hash change to handle profile and question links
   useEffect(() => {
     const checkHash = () => {
       const hash = window.location.hash
       if (hash === '#profile' && user) {
         setView('profile')
         loadUserProfile(user.id)
+      } else if (hash.startsWith('#question/')) {
+        const questionId = hash.replace('#question/', '')
+        if (questionId) {
+          loadQuestionById(questionId)
+        }
       } else if (!hash || hash === '') {
         setView('ask')
         setCurrentPage('home')
@@ -261,7 +317,7 @@ function App() {
     return () => {
       window.removeEventListener('hashchange', checkHash)
     }
-  }, [user, loadUserProfile])
+  }, [user, loadUserProfile, loadQuestionById])
 
   useEffect(() => {
     let isMounted = true
@@ -723,10 +779,12 @@ function App() {
           <nav className="mobile-menu" onClick={(e) => e.stopPropagation()}>
             <a
               href="#"
-              className={`mobile-nav-item ${currentPage === 'home' ? 'active' : ''}`}
+              className={`mobile-nav-item ${currentPage === 'home' && view !== 'profile' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
                 setCurrentPage('home')
+                setView('ask')
+                window.location.hash = ''
                 setMobileMenuOpen(false)
               }}
             >
@@ -761,10 +819,12 @@ function App() {
           <nav className="sidebar-nav">
             <a
               href="#"
-              className={`nav-item ${currentPage === 'home' ? 'active' : ''}`}
+              className={`nav-item ${currentPage === 'home' && view !== 'profile' ? 'active' : ''}`}
               onClick={(e) => {
                 e.preventDefault()
                 setCurrentPage('home')
+                setView('ask')
+                window.location.hash = ''
               }}
             >
               Home
@@ -881,35 +941,7 @@ function App() {
                                         href="#"
                                         onClick={(e) => {
                                           e.preventDefault()
-                                          setCurrentQuestion(question)
-                                          setView('question')
-                                          // Load answers for this question
-                                          fetch(`${apiBase}/api/questions/${question.id}/answers`)
-                                            .then(res => res.json())
-                                            .then(answers => {
-                                              // Transform answers to match BotAnswer format
-                                              Promise.all(answers.map(async (answer: any) => {
-                                                const profile = await fetch(`${apiBase}/api/users/${answer.user_id}/profile`)
-                                                  .then(res => res.json())
-                                                  .catch(() => null)
-                                                return {
-                                                  answer: {
-                                                    id: answer.id,
-                                                    content: answer.content,
-                                                    created_at: answer.created_at
-                                                  },
-                                                  botProfile: profile?.profile || {
-                                                    id: answer.user_id,
-                                                    username: 'Unknown'
-                                                  },
-                                                  botName: profile?.profile?.is_ai ? 'AI Assistant' : 'User',
-                                                  botId: answer.user_id,
-                                                  answerText: answer.content
-                                                }
-                                              })).then(botAnswers => {
-                                                setAnswers(botAnswers)
-                                              })
-                                            })
+                                          window.location.hash = `#question/${question.id}`
                                         }}
                                       >
                                         {question.title}
