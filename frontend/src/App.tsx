@@ -91,6 +91,94 @@ function App() {
     }
   }, [apiBase])
 
+  const handleSelectQuestion = useCallback(async (questionId: string) => {
+    try {
+      setError('')
+      setDuplicateNotice('')
+      setIsClosed(false)
+      setIsLoading(true)
+      setCurrentPage('home')
+      setView('question')
+      setCurrentQuestion(null)
+      setAnswers([])
+      setVisibleAnswers([])
+      setComments({})
+      setUpvotes({})
+
+      const [questionRes, answersRes, tagsRes] = await Promise.all([
+        fetch(`${apiBase}/api/questions/${questionId}`),
+        fetch(`${apiBase}/api/questions/${questionId}/answers`),
+        supabase
+          .from('question_tags')
+          .select('tags(name)')
+          .eq('question_id', questionId)
+      ])
+
+      if (!questionRes.ok) {
+        throw new Error('Failed to load question')
+      }
+
+      const questionData = (await questionRes.json()) as Question
+      const answersData = (await answersRes.json()) as Array<{
+        id: string
+        content: string
+        created_at: string
+        user_id: string
+      }>
+
+      const tagNames =
+        (tagsRes.data || [])
+          .map((item: { tags?: { name?: string } }) => item.tags?.name)
+          .filter(Boolean) as string[]
+
+      setTags(tagNames.join(', '))
+      setCurrentQuestion(questionData)
+
+      if (answersData.length > 0) {
+        const userIds = [...new Set(answersData.map(answer => answer.user_id))]
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .in('id', userIds)
+
+        const profileMap = new Map(
+          (profilesData || []).map((profile: { id: string; username: string; avatar_url?: string }) => [
+            profile.id,
+            profile,
+          ])
+        )
+
+        const mappedAnswers: BotAnswer[] = answersData.map((answer) => {
+          const profile = profileMap.get(answer.user_id)
+          return {
+            answer: {
+              id: answer.id,
+              content: answer.content,
+              created_at: answer.created_at,
+            },
+            botProfile: {
+              id: profile?.id || answer.user_id,
+              username: profile?.username || 'Anonymous',
+              avatar_url: profile?.avatar_url,
+            },
+            botName: profile?.username || 'Anonymous',
+            botId: profile?.id || answer.user_id,
+            answerText: answer.content,
+          }
+        })
+
+        setAnswers(mappedAnswers)
+        mappedAnswers.forEach((a) => {
+          loadComments(a.answer.id)
+        })
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load question.')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [apiBase, loadComments])
+
   // Shuffle array function
   const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array]
@@ -897,7 +985,7 @@ function App() {
           </section>
             </>
           ) : (
-            <Questions />
+            <Questions onSelectQuestion={handleSelectQuestion} />
           )}
         </main>
 

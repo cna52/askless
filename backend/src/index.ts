@@ -298,6 +298,18 @@ async function generateBotAnswer(
     }
 }
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+    let timeoutId: NodeJS.Timeout
+    const timeoutPromise = new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+    })
+    try {
+        return await Promise.race([promise, timeoutPromise])
+    } finally {
+        clearTimeout(timeoutId!)
+    }
+}
+
 // POST /api/ask - Generate answers from multiple bots and save to database (with duplicate detection)
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
@@ -402,9 +414,16 @@ app.post('/api/ask', async (req: Request, res: Response) => {
             return res.status(500).json({ error: 'Failed to save question to database' })
         }
 
-        // Generate answers from all bots in parallel
+        // Generate answers from all bots in parallel with per-bot timeout
+        const botTimeoutMs = Number(process.env.BOT_TIMEOUT_MS || 12000)
         const botAnswers = await Promise.allSettled(
-            BOT_PERSONALITIES.map(bot => generateBotAnswer(bot, question.trim(), savedQuestion.id))
+            BOT_PERSONALITIES.map(bot =>
+                withTimeout(
+                    generateBotAnswer(bot, question.trim(), savedQuestion.id),
+                    botTimeoutMs,
+                    `Bot ${bot.name}`
+                )
+            )
         )
 
         // Process results
