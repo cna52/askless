@@ -84,17 +84,24 @@ export function Questions() {
         const profileMap = new Map(profilesData?.map((p: any) => [p.id, p.username]) || [])
 
         // Transform the data to match our Question interface
-        const transformedQuestions: Question[] = questionsData.map((q: any) => ({
-          id: q.id,
-          title: q.title,
-          content: q.content,
-          author: profileMap.get(q.user_id) || 'Anonymous',
-          answers: q.answers?.length || 0,
-          views: Math.floor(Math.random() * 2000) + 100, // Placeholder - not in schema
-          votes: Math.floor(Math.random() * 200), // Placeholder - not in schema
-          tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || [],
-          created: formatRelativeTime(q.created_at),
-        }))
+        const transformedQuestions: Question[] = questionsData.map((q: any) => {
+          // Deduplicate answers by ID to prevent counting duplicates from joins
+          const uniqueAnswers = q.answers
+            ? Array.from(new Map(q.answers.map((a: any) => [a.id, a])).values())
+            : []
+
+          return {
+            id: q.id,
+            title: q.title,
+            content: q.content,
+            author: profileMap.get(q.user_id) || 'Anonymous',
+            answers: uniqueAnswers.length,
+            views: Math.floor(Math.random() * 2000) + 100, // Placeholder - not in schema
+            votes: Math.floor(Math.random() * 200), // Placeholder - not in schema
+            tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || [],
+            created: formatRelativeTime(q.created_at),
+          }
+        })
 
         setQuestions(transformedQuestions)
       } catch (err) {
@@ -150,7 +157,7 @@ export function Questions() {
         <h1>Questions</h1>
         <p className="questions-subtitle">Browse all questions from the community</p>
       </div>
-      
+
       <div className="questions-grid">
         {questions.map((question: Question) => (
           <div key={question.id} className="question-box">
@@ -168,11 +175,11 @@ export function Questions() {
                 <div className="stat-label">views</div>
               </div>
             </div>
-            
+
             <div className="question-content">
               <h3 className="question-title">{question.title}</h3>
               <p className="question-excerpt">{question.content}</p>
-              
+
               <div className="question-meta">
                 <div className="question-tags">
                   {question.tags.map((tag: string) => (
