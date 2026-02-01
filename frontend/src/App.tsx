@@ -1055,13 +1055,7 @@ function App() {
             </button>
           )}
           {authError && <span className="auth-error">{authError}</span>}
-          <div className="header-icon">
-            <span className="icon-bell">🔔</span>
-            <span className="badge-count">1</span>
-          </div>
-          <div className="header-icon">✉️</div>
-          <div className="header-icon">🏆</div>
-          <div className="header-icon">❓</div>
+          
         </div>
       </header>
 
