@@ -942,7 +942,7 @@ function App() {
         setCurrentPage('questions')
         window.location.hash = '#questions'
         setDuplicateNotice(
-          [data.message, data.environmentMessage].filter(Boolean).join(' ')
+          [data.message].filter(Boolean).join(' ')
         )
       } else if (data.question) {
         // Clear form and navigate to the new question page
