@@ -2,9 +2,11 @@ import express, { Request, Response } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { randomUUID, createHash } from 'crypto'
+import { createHash } from 'crypto'
 import * as db from './services/db'
 import { supabase } from './lib/supabase'
+import { generateTags } from './services/tagGenerator'
+import { findSimilarQuestions, getOrCreateTags } from './services/questionSearch'
 
 dotenv.config()
 
@@ -296,7 +298,7 @@ async function generateBotAnswer(
     }
 }
 
-// POST /api/ask - Generate answers from multiple bots and save to database
+// POST /api/ask - Generate answers from multiple bots and save to database (with duplicate detection)
 app.post('/api/ask', async (req: Request, res: Response) => {
     try {
         const { question, sassLevel, sassLabel, userId, title, tagIds, username, avatarUrl } = req.body
@@ -321,14 +323,62 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         if (!questionUserId) {
             return res.status(401).json({ error: 'User is required to ask a question' })
         }
+        const questionTitle = title || question.substring(0, 100)
+
+        // 🌱 SUSTAINABLE FEATURE: Generate tags and check for duplicates
+        console.log('🏷️ Generating tags...')
+        const tagNames = await generateTags(questionTitle, question.trim(), config.apiKey)
+        console.log('Generated tags:', tagNames)
+
+        // Search for similar questions
+        console.log('🔍 Searching for similar questions...')
+        const similarQuestions = await findSimilarQuestions(tagNames)
+
+        // If similar questions found, return duplicate response
+        if (similarQuestions.length > 0) {
+            const topMatch = similarQuestions[0]
+
+            // Increment search count
+            await supabase
+                .from('questions')
+                .update({ search_count: topMatch.search_count + 1 })
+                .eq('id', topMatch.question_id)
+
+            // Get existing answers for the duplicate
+            const existingAnswers = await db.getAnswersForQuestion(topMatch.question_id)
+
+            console.log('✅ Found duplicate! Returning existing answers.')
+
+            return res.json({
+                isDuplicate: true,
+                message: '**[DUPLICATE]** This question has been asked before. Did you even try searching? 🙄',
+                originalQuestion: {
+                    id: topMatch.question_id,
+                    title: topMatch.title,
+                    content: topMatch.content,
+                    tags: topMatch.matching_tags,
+                    searchCount: topMatch.search_count + 1
+                },
+                answers: existingAnswers,
+                answerText: existingAnswers[0]?.content || 'Answer not found',
+                similarQuestions: similarQuestions.slice(0, 5),
+                environmentMessage: `🌱 You just saved ${(Math.random() * 0.5 + 0.1).toFixed(2)}kg of CO2 by reusing an answer!`,
+                tags: tagNames
+            })
+        }
+
+        console.log('✨ No duplicates found. Creating new question...')
+
+        // Create or get tags
+        const tags = await getOrCreateTags(tagNames)
+        const resolvedTagIds = (Array.isArray(tagIds) && tagIds.length > 0) ? tagIds : tags.map(t => t.id)
 
         // Save question to database
-        const questionTitle = title || question.substring(0, 100)
         const savedQuestion = await db.createQuestion(
             questionUserId,
             questionTitle,
             question.trim(),
-            tagIds
+            resolvedTagIds
         )
 
         if (!savedQuestion) {
@@ -368,16 +418,19 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         }
 
         res.json({
+            isDuplicate: false,
             question: savedQuestion,
             answers: answers.map(a => ({
                 answer: a.answer,
                 botProfile: a.botProfile,
                 botName: a.botName,
                 botId: a.botId,
-                answerText: a.answer.content
+                answerText: a.answer.content,
             })),
             totalBots: BOT_PERSONALITIES.length,
-            successfulBots: answers.length
+            successfulBots: answers.length,
+            tags: tagNames,
+            message: 'Question answered! (Though you probably should have searched first...)'
         })
     } catch (error: any) {
         console.error('Error generating answers:', error)
@@ -415,11 +468,9 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 ]
             })
         }
-
         res.status(500).json({
             error: 'Failed to generate answer. Please try again.',
-            details: error.message,
-            fullError: error.toString()
+            details: error.message
         })
     }
 })
@@ -439,7 +490,8 @@ app.get('/api/questions', async (req: Request, res: Response) => {
 // GET /api/questions/:id - Get a specific question
 app.get('/api/questions/:id', async (req: Request, res: Response) => {
     try {
-        const question = await db.getQuestion(req.params.id)
+        const questionId = String(req.params.id)  // ← FIX: Convert to string
+        const question = await db.getQuestion(questionId)
         if (!question) {
             return res.status(404).json({ error: 'Question not found' })
         }
@@ -491,7 +543,6 @@ app.get('/api/questions/:id/answers', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to fetch answers' })
     }
 })
-
 // POST /api/questions/:id/answers - Create an answer
 app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
     try {
@@ -501,6 +552,7 @@ app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Content is required' })
         }
 
+        const questionId = String(req.params.id)
         const answerUserId = await ensureUserProfile({
             userId,
             username,
@@ -510,7 +562,7 @@ app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
         if (!answerUserId) {
             return res.status(401).json({ error: 'User is required to create an answer' })
         }
-        const answer = await db.createAnswer(req.params.id, answerUserId, content)
+        const answer = await db.createAnswer(questionId, answerUserId, content)
 
         if (!answer) {
             return res.status(500).json({ error: 'Failed to create answer' })
@@ -602,6 +654,48 @@ app.post('/api/tags', async (req: Request, res: Response) => {
     }
 })
 
+// GET /api/top-searched - Get most reused questions
+app.get('/api/top-searched', async (req: Request, res: Response) => {
+    try {
+        const limitParam = req.query.limit
+        const limit = typeof limitParam === 'string' ? parseInt(limitParam) : 20  // ← FIX: Properly handle query param
+
+        const { data, error } = await supabase
+            .from('questions')
+            .select(`
+                id,
+                title,
+                content,
+                search_count,
+                created_at,
+                question_tags (
+                    tags (
+                        name
+                    )
+                )
+            `)
+            .order('search_count', { ascending: false })
+            .limit(limit)
+
+        if (error) throw error
+
+        // Format response
+        const formatted = data?.map(q => ({
+            ...q,
+            tags: q.question_tags?.map((qt: any) => qt.tags?.name).filter(Boolean) || []  // ← FIX: Use 'any' type
+        })) || []
+
+        res.json({
+            topQuestions: formatted,
+            message: "These questions saved the most CO2 by being reused! 🌱"
+        })
+    } catch (error: any) {
+        console.error('Error fetching top questions:', error)
+        res.status(500).json({ error: 'Failed to fetch top questions' })
+    }
+})
+
+
 // Root endpoint - API information
 app.get('/', (req: Request, res: Response) => {
     res.json({
@@ -619,7 +713,8 @@ app.get('/', (req: Request, res: Response) => {
             'GET /api/questions/:id/answers': 'Get answers for a question',
             'POST /api/questions/:id/answers': 'Create an answer',
             'GET /api/tags': 'Get all tags',
-            'POST /api/tags': 'Create a new tag'
+            'POST /api/tags': 'Create a new tag',
+            'GET /api/top-searched': 'Get most reused questions (sustainability feature)' // ← ADD THIS
         },
         hasApiKey: !!config?.apiKey,
         note: 'This is an API server. Access the frontend UI at http://localhost:5173 (or the port shown when you run "npm run dev" in the frontend folder)'
@@ -654,12 +749,12 @@ app.listen(PORT, async () => {
     }
 
     // Test Supabase connection
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+    if (process.env.SUPABASE_URL && (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)) {
         console.log('✅ Supabase configured')
         // Initialize bot profiles after Supabase is confirmed
         await initializeBotProfiles()
     } else {
-        console.log('⚠️  Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env variables')
+        console.log('⚠️  Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY env variables')
         console.log('⚠️  Bot profiles will not be initialized without Supabase')
     }
 })
