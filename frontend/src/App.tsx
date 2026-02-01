@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { supabase } from './lib/supabaseClient'
+import { Questions } from './pages/Questions'
 import './App.css'
 
 interface BotAnswer {
@@ -43,6 +44,7 @@ interface Comment {
 }
 
 function App() {
+  const [currentPage, setCurrentPage] = useState<'home' | 'questions'>('home')
   const [view, setView] = useState<'ask' | 'question'>('ask')
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [title, setTitle] = useState('')
@@ -462,8 +464,26 @@ function App() {
       <div className="main-layout">
         <aside className="left-sidebar">
           <nav className="sidebar-nav">
-            <a href="#" className="nav-item active">Home</a>
-            <a href="#" className="nav-item">Questions</a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'home' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('home')
+              }}
+            >
+              Home
+            </a>
+            <a
+              href="#"
+              className={`nav-item ${currentPage === 'questions' ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault()
+                setCurrentPage('questions')
+              }}
+            >
+              Questions
+            </a>
             <a href="#" className="nav-item">AI Assist</a>
             <a href="#" className="nav-item">Tags</a>
             <a href="#" className="nav-item">Saves</a>
@@ -477,7 +497,9 @@ function App() {
         </aside>
 
         <main className="content-area">
-          {view === 'ask' ? (
+          {currentPage === 'home' ? (
+            <>
+              {view === 'ask' ? (
             <section className="question-form-section">
               <h1 className="question-form-title">Ask a question</h1>
               <form className="question-form" onSubmit={handleSubmit}>
@@ -873,6 +895,10 @@ function App() {
               <button className="stat-button">Customize your feed</button>
             </div>
           </section>
+            </>
+          ) : (
+            <Questions />
+          )}
         </main>
 
         <aside className="right-sidebar">
