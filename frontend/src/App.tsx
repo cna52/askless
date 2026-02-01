@@ -119,6 +119,7 @@ function App() {
   const [availableTags, setAvailableTags] = useState<Array<{ id: number, name: string }>>([])
   const [selectedTags, setSelectedTags] = useState<number[]>([])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [markdownMode, setMarkdownMode] = useState<'write' | 'preview'>('write')
   const questionCacheRef = useRef<Map<string, CachedQuestion>>(new Map())
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
@@ -1414,20 +1415,82 @@ function App() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label htmlFor="body" className="form-label">
-                        Description <span className="required">*</span>
-                      </label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label htmlFor="body" className="form-label" style={{ marginBottom: 0 }}>
+                          Description <span className="required">*</span>
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setMarkdownMode('write')}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid var(--so-border)',
+                              background: markdownMode === 'write' ? 'var(--so-blue-light)' : 'white',
+                              color: markdownMode === 'write' ? 'var(--so-blue)' : 'var(--so-text)',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: markdownMode === 'write' ? '600' : '400'
+                            }}
+                          >
+                            Write
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMarkdownMode('preview')}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid var(--so-border)',
+                              background: markdownMode === 'preview' ? 'var(--so-blue-light)' : 'white',
+                              color: markdownMode === 'preview' ? 'var(--so-blue)' : 'var(--so-text)',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: markdownMode === 'preview' ? '600' : '400'
+                            }}
+                          >
+                            Preview
+                          </button>
+                        </div>
+                      </div>
                       <p className="form-hint">
-                        Include all the information someone would need to answer your question. Min 20 characters.
+                        Include all the information someone would need to answer your question. Min 20 characters. Markdown is supported.
                       </p>
-                      <textarea
-                        id="body"
-                        className="form-textarea"
-                        placeholder="Describe your problem, what you've tried, and any relevant details..."
-                        value={body}
-                        onChange={(e) => setBody(e.target.value)}
-                        rows={10}
-                      />
+                      <div style={{ position: 'relative' }}>
+                        {markdownMode === 'write' ? (
+                          <textarea
+                            id="body"
+                            className="form-textarea"
+                            placeholder="Describe your problem, what you've tried, and any relevant details... (Markdown supported)"
+                            value={body}
+                            onChange={(e) => setBody(e.target.value)}
+                            rows={10}
+                          />
+                        ) : (
+                          <div
+                            className="form-textarea"
+                            style={{
+                              minHeight: '200px',
+                              padding: '12px',
+                              overflow: 'auto',
+                              fontSize: '14px',
+                              lineHeight: '1.6',
+                              whiteSpace: 'pre-wrap'
+                            }}
+                          >
+                            {body.trim() ? (
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {body}
+                              </ReactMarkdown>
+                            ) : (
+                              <div style={{ color: 'var(--so-text-muted)', fontStyle: 'italic' }}>
+                                Nothing to preview. Start typing to see your markdown rendered here.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="form-counter">
                         {bodyLength} {!isBodyValid && bodyLength > 0 && (
                           <span className="form-error"> (minimum 20 characters)</span>
