@@ -126,6 +126,30 @@ function App() {
 
   const QUESTION_CACHE_TTL = 5 * 60 * 1000
   const QUESTION_CACHE_MAX = 8
+  const QUESTION_LS_TTL = 10 * 60 * 1000
+
+  const getLocalCachedQuestion = (questionId: string) => {
+    try {
+      const raw = localStorage.getItem(`askless:question:${questionId}`)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as CachedQuestion
+      if (!parsed?.cachedAt || Date.now() - parsed.cachedAt > QUESTION_LS_TTL) {
+        localStorage.removeItem(`askless:question:${questionId}`)
+        return null
+      }
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  const setLocalCachedQuestion = (questionId: string, entry: CachedQuestion) => {
+    try {
+      localStorage.setItem(`askless:question:${questionId}`, JSON.stringify(entry))
+    } catch {
+      // ignore storage errors for demo
+    }
+  }
 
   const getCachedQuestion = (questionId: string) => {
     const entry = questionCacheRef.current.get(questionId)
@@ -439,6 +463,37 @@ function App() {
         return
       }
 
+      const cachedLocal = getLocalCachedQuestion(questionId)
+      if (cachedLocal) {
+        setCurrentQuestion(cachedLocal.question)
+        setCurrentQuestionTags(cachedLocal.tags)
+        setAnswers(cachedLocal.answers)
+        setVisibleAnswers(cachedLocal.answers)
+        setIsLoading(false)
+
+        if (cachedLocal.question?.user_id) {
+          try {
+            const authorResponse = await fetch(`${apiBase}/api/users/${cachedLocal.question.user_id}/profile`)
+            if (authorResponse.ok) {
+              const authorData = await authorResponse.json()
+              setCurrentQuestionAuthor(authorData?.profile || null)
+            } else {
+              setCurrentQuestionAuthor(null)
+            }
+          } catch (err) {
+            setCurrentQuestionAuthor(null)
+          }
+        }
+
+        loadQuestionComments(questionId)
+        loadVoteCounts(questionId)
+        cachedLocal.answers.forEach((botAnswer: BotAnswer) => {
+          loadComments(botAnswer.answer.id)
+          loadVoteCounts(undefined, botAnswer.answer.id)
+        })
+        return
+      }
+
       const [questionResponse, answersResponse] = await Promise.all([
         fetch(`${apiBase}/api/questions/${questionId}`),
         fetch(`${apiBase}/api/questions/${questionId}/answers`),
@@ -535,6 +590,12 @@ function App() {
           tags: tagNames,
           cachedAt: Date.now(),
         })
+        setLocalCachedQuestion(questionId, {
+          question,
+          answers: botAnswers,
+          tags: tagNames,
+          cachedAt: Date.now(),
+        })
       }
 
       if (answersResponse.ok) {
@@ -595,6 +656,12 @@ function App() {
         })
 
         setCachedQuestion(questionId, {
+          question,
+          answers: botAnswers,
+          tags: tagNames,
+          cachedAt: Date.now(),
+        })
+        setLocalCachedQuestion(questionId, {
           question,
           answers: botAnswers,
           tags: tagNames,
