@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import type { User } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -21,13 +21,45 @@ interface BotAnswer {
   answerText: string
 }
 
+interface Question {
+  id: string
+  title: string
+  content: string
+  created_at: string
+  user_id: string
+}
+
+interface Comment {
+  id: string
+  answer_id: string
+  user_id: string
+  content: string
+  created_at: string
+  parent_id?: string
+  profile?: {
+    username: string
+    avatar_url?: string
+  }
+}
+
 function App() {
-  const [question, setQuestion] = useState('')
-  const [sass, setSass] = useState(55)
+  const [view, setView] = useState<'ask' | 'question'>('ask')
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [tags, setTags] = useState('')
   const [answers, setAnswers] = useState<BotAnswer[]>([])
   const [visibleAnswers, setVisibleAnswers] = useState<BotAnswer[]>([])
+  const [comments, setComments] = useState<Record<string, Comment[]>>({})
+  const [commentTexts, setCommentTexts] = useState<Record<string, string>>({})
+  const [replyingTo, setReplyingTo] = useState<Record<string, string>>({})
   const [upvotes, setUpvotes] = useState<Record<string, number>>({})
   const [isClosed, setIsClosed] = useState(false)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    'summarize': true,
+    'tried': false,
+    'code': false
+  })
   const [user, setUser] = useState<User | null>(null)
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
@@ -36,12 +68,23 @@ function App() {
 
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:3001'
 
-  const sassLabel = useMemo(() => {
-    if (sass < 25) return 'Kind'
-    if (sass < 50) return 'Helpful'
-    if (sass < 75) return 'Snarky'
-    return 'Unhinged'
-  }, [sass])
+  const titleLength = title.trim().length
+  const bodyLength = body.trim().length
+  const isTitleValid = titleLength >= 15
+  const isBodyValid = bodyLength >= 20
+  const canSubmit = isTitleValid && isBodyValid && !isLoading && user
+
+  const loadComments = useCallback(async (answerId: string) => {
+    try {
+      const response = await fetch(`${apiBase}/api/answers/${answerId}/comments`)
+      if (response.ok) {
+        const data = await response.json()
+        setComments(prev => ({ ...prev, [answerId]: data }))
+      }
+    } catch (err) {
+      console.error('Failed to load comments:', err)
+    }
+  }, [apiBase])
 
   // Shuffle array function
   const shuffleArray = <T,>(array: T[]): T[] => {
@@ -78,9 +121,12 @@ function App() {
           ...prev,
           [answer.answer.id]: 41
         }))
+
+        // Load comments when answer becomes visible
+        loadComments(answer.answer.id)
       }, delay)
     })
-  }, [answers])
+  }, [answers, view])
 
   // Animate upvotes for visible answers
   useEffect(() => {
@@ -102,6 +148,15 @@ function App() {
     }, 1000)
     return () => clearInterval(id)
   }, [visibleAnswers])
+
+  // Load comments when question view is shown
+  useEffect(() => {
+    if (view === 'question' && visibleAnswers.length > 0) {
+      visibleAnswers.forEach(answer => {
+        loadComments(answer.answer.id)
+      })
+    }
+  }, [view, visibleAnswers, loadComments])
 
   useEffect(() => {
     let isMounted = true
@@ -174,12 +229,16 @@ function App() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    const trimmed = question.trim()
-    if (!trimmed) return
+    const trimmedTitle = title.trim()
+    const trimmedBody = body.trim()
+
+    if (!trimmedTitle || !trimmedBody) return
+    if (!isTitleValid || !isBodyValid) return
     if (!user) {
       setError('Please sign in before asking a question.')
       return
     }
+
     setIsLoading(true)
     setError('')
     setAnswers([])
@@ -199,9 +258,9 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: trimmed,
-          sassLevel: sass,
-          sassLabel,
+          question: trimmedBody,
+          title: trimmedTitle,
+          tagIds: [], // TODO: Map tag names to IDs
           userId: user.id,
           username,
           avatarUrl,
@@ -214,13 +273,31 @@ function App() {
       }
 
       const data = (await response.json()) as {
+        question?: Question
         answers?: BotAnswer[]
         answerText?: string
         answer?: { content?: string }
       }
 
-      // Handle new format with multiple answers
-      if (data.answers && Array.isArray(data.answers)) {
+      // If we got a question back, navigate to question view
+      if (data.question) {
+        setCurrentQuestion(data.question)
+        // Handle new format with multiple answers
+        if (data.answers && Array.isArray(data.answers)) {
+          setAnswers(data.answers)
+        }
+        // Clear form and switch to question view
+        setTitle('')
+        setBody('')
+        setTags('')
+        setView('question')
+        // Load comments for all answers
+        if (data.answers) {
+          data.answers.forEach(a => {
+            loadComments(a.answer.id)
+          })
+        }
+      } else if (data.answers && Array.isArray(data.answers)) {
         setAnswers(data.answers)
       } else if (data.answerText || data.answer?.content) {
         // Fallback for old format (shouldn't happen but just in case)
@@ -239,12 +316,68 @@ function App() {
           answerText: data.answerText || data.answer?.content || ''
         }])
       }
-
-      setIsClosed(sass >= 65 || trimmed.length < 12)
     } catch (err: any) {
-      setError(err.message || 'Backend is judging you silently. Check the server logs.')
+      setError(err.message || 'Failed to submit question. Please try again.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleAddComment = async (answerId: string, parentId?: string) => {
+    if (!user) {
+      setError('Please sign in to comment.')
+      return
+    }
+
+    const commentText = parentId
+      ? replyingTo[`${answerId}-${parentId}`] || ''
+      : commentTexts[answerId] || ''
+
+    if (!commentText.trim()) return
+
+    try {
+      const username =
+        user.user_metadata?.user_name ||
+        user.user_metadata?.preferred_username ||
+        user.user_metadata?.full_name ||
+        user.email?.split('@')[0]
+      const avatarUrl = user.user_metadata?.avatar_url || null
+
+      const response = await fetch(`${apiBase}/api/answers/${answerId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: commentText.trim(),
+          userId: user.id,
+          username,
+          avatarUrl,
+          parentId,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to post comment')
+      }
+
+      // Clear comment text
+      if (parentId) {
+        setReplyingTo(prev => {
+          const newReplying = { ...prev }
+          delete newReplying[`${answerId}-${parentId}`]
+          return newReplying
+        })
+      } else {
+        setCommentTexts(prev => {
+          const newTexts = { ...prev }
+          delete newTexts[answerId]
+          return newTexts
+        })
+      }
+
+      // Reload comments
+      await loadComments(answerId)
+    } catch (err: any) {
+      setError(err.message || 'Failed to post comment.')
     }
   }
 
@@ -308,40 +441,287 @@ function App() {
         </aside>
 
         <main className="content-area">
-          <section className="ai-assist-section">
-            <h1 className="ai-assist-title">Hey there, what do you want to learn today?</h1>
-            <p className="ai-assist-subtitle">
-              Get instant answers from multiple AI bots with different personalities - helpful, mean, blunt, and more!
-            </p>
-            <form className="ai-assist-form" onSubmit={handleSubmit}>
-              <div className="input-wrapper">
-                <textarea
-                  className="ai-assist-input"
-                  placeholder="Start a chat with AI Assist..."
-                  value={question}
-                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setQuestion(event.target.value)}
-                  rows={3}
-                />
-                <button type="submit" className="ai-assist-submit" disabled={isLoading}>
-                  ↑
+          {view === 'ask' ? (
+            <section className="question-form-section">
+              <h1 className="question-form-title">Ask a question</h1>
+              <form className="question-form" onSubmit={handleSubmit}>
+                <div className="form-group">
+                  <label htmlFor="title" className="form-label">
+                    Title <span className="required">*</span>
+                  </label>
+                  <p className="form-hint">
+                    Be specific and imagine you're asking a question to another person. Min 15 characters.
+                  </p>
+                  <input
+                    id="title"
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. How do I center a div in CSS?"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    maxLength={150}
+                  />
+                  <div className="form-counter">
+                    {titleLength} / 150 {!isTitleValid && titleLength > 0 && (
+                      <span className="form-error"> (minimum 15 characters)</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="body" className="form-label">
+                    Body <span className="required">*</span>
+                  </label>
+                  <p className="form-hint">
+                    Include all the information someone would need to answer your question. Min 20 characters.
+                  </p>
+                  <textarea
+                    id="body"
+                    className="form-textarea"
+                    placeholder="Describe your question in detail..."
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={10}
+                  />
+                  <div className="form-counter">
+                    {bodyLength} characters {!isBodyValid && bodyLength > 0 && (
+                      <span className="form-error"> (minimum 20 characters)</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="tags" className="form-label">
+                    Tags
+                  </label>
+                  <p className="form-hint">
+                    Add tags to describe what your question is about (comma-separated).
+                  </p>
+                  <input
+                    id="tags"
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. javascript, react, css"
+                    value={tags}
+                    onChange={(e) => setTags(e.target.value)}
+                  />
+                </div>
+
+                {error && (
+                  <div className="form-error-message">{error}</div>
+                )}
+
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    className="submit-button"
+                    disabled={!canSubmit}
+                  >
+                    {isLoading ? 'Posting...' : 'Post your question'}
+                  </button>
+                  {!user && (
+                    <p className="form-hint" style={{ marginTop: '0.5rem' }}>
+                      Please sign in to ask a question.
+                    </p>
+                  )}
+                </div>
+              </form>
+            </section>
+          ) : currentQuestion ? (
+            <section className="question-detail-section">
+              <div className="question-header">
+                <h1 className="question-title">{currentQuestion.title}</h1>
+                <button
+                  className="ask-question-link"
+                  onClick={() => {
+                    setView('ask')
+                    setCurrentQuestion(null)
+                    setAnswers([])
+                    setVisibleAnswers([])
+                    setComments({})
+                  }}
+                >
+                  Ask Question
                 </button>
               </div>
-              <div className="slider-controls">
-                <label className="slider-label">Sass level: {sassLabel}</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={sass}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSass(Number(event.target.value))}
-                  className="sass-slider"
-                />
+
+              <div className="question-content-card">
+                <div className="question-votes">
+                  <button className="vote-button upvote">▲</button>
+                  <div className="vote-count">0</div>
+                  <button className="vote-button downvote">▼</button>
+                </div>
+                <div className="question-body">
+                  <div className="question-text">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {currentQuestion.content}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="question-footer">
+                    <div className="question-tags">
+                      {tags && tags.split(',').map((tag, i) => (
+                        <span key={i} className="tag">{tag.trim()}</span>
+                      ))}
+                    </div>
+                    <div className="question-author">
+                      <span>Asked by:</span>
+                      <a href="#" className="author-link">{user?.user_metadata?.full_name || user?.email || 'You'}</a>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </form>
-            <p className="ai-assist-disclaimer">
-              By using AI Assist, you agree to askless.ai's Terms of Service and Privacy Policy.
-            </p>
-          </section>
+
+              <div className="answers-section">
+                <h2 className="answers-title">
+                  {visibleAnswers.length} {visibleAnswers.length === 1 ? 'Answer' : 'Answers'}
+                </h2>
+
+                {visibleAnswers.map((botAnswer) => {
+                  const answerComments = comments[botAnswer.answer.id] || []
+                  const topLevelComments = answerComments.filter(c => !c.parent_id)
+
+                  return (
+                    <div key={botAnswer.answer.id} className="answer-card" style={{ marginBottom: '1.5rem' }}>
+                      <div className="answer-header">
+                        <div className="answer-votes">
+                          <button className="vote-button upvote">▲</button>
+                          <div className="vote-count">{upvotes[botAnswer.answer.id] || 0}</div>
+                          <button className="vote-button downvote">▼</button>
+                        </div>
+                        <div className="answer-content">
+                          <div className="answer-text">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {botAnswer.answerText || botAnswer.answer.content}
+                            </ReactMarkdown>
+                          </div>
+                          <div className="answer-footer">
+                            <div className="answer-author">
+                              <span>Answered by:</span>
+                              <a href="#" className="author-link">{botAnswer.botProfile.username}</a>
+                              <span className="author-badge" style={{
+                                marginLeft: '0.5rem',
+                                padding: '0.25rem 0.5rem',
+                                backgroundColor: '#e3f2fd',
+                                borderRadius: '4px',
+                                fontSize: '0.75rem'
+                              }}>
+                                {botAnswer.botName}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Comments Section */}
+                          <div className="comments-section">
+                            {topLevelComments.map(comment => (
+                              <div key={comment.id} className="comment-item">
+                                <div className="comment-content">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {comment.content}
+                                  </ReactMarkdown>
+                                  <div className="comment-author">
+                                    <a href="#" className="author-link">{comment.profile?.username || 'User'}</a>
+                                    <button
+                                      className="comment-reply-btn"
+                                      onClick={() => {
+                                        const key = `${botAnswer.answer.id}-${comment.id}`
+                                        setReplyingTo(prev => ({
+                                          ...prev,
+                                          [key]: prev[key] || ''
+                                        }))
+                                      }}
+                                    >
+                                      Reply
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Reply input */}
+                                {replyingTo[`${botAnswer.answer.id}-${comment.id}`] !== undefined && (
+                                  <div className="comment-reply-form">
+                                    <textarea
+                                      className="comment-input"
+                                      placeholder="Add a reply..."
+                                      value={replyingTo[`${botAnswer.answer.id}-${comment.id}`] || ''}
+                                      onChange={(e) => setReplyingTo(prev => ({
+                                        ...prev,
+                                        [`${botAnswer.answer.id}-${comment.id}`]: e.target.value
+                                      }))}
+                                      rows={3}
+                                    />
+                                    <div className="comment-actions">
+                                      <button
+                                        className="comment-submit-btn"
+                                        onClick={() => handleAddComment(botAnswer.answer.id, comment.id)}
+                                      >
+                                        Add Reply
+                                      </button>
+                                      <button
+                                        className="comment-cancel-btn"
+                                        onClick={() => {
+                                          setReplyingTo(prev => {
+                                            const newReplying = { ...prev }
+                                            delete newReplying[`${botAnswer.answer.id}-${comment.id}`]
+                                            return newReplying
+                                          })
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Nested replies */}
+                                {answerComments
+                                  .filter(c => c.parent_id === comment.id)
+                                  .map(reply => (
+                                    <div key={reply.id} className="comment-item nested">
+                                      <div className="comment-content">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                          {reply.content}
+                                        </ReactMarkdown>
+                                        <div className="comment-author">
+                                          <a href="#" className="author-link">{reply.profile?.username || 'User'}</a>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            ))}
+
+                            {/* Add comment form */}
+                            {user && (
+                              <div className="comment-form">
+                                <textarea
+                                  className="comment-input"
+                                  placeholder="Add a comment..."
+                                  value={commentTexts[botAnswer.answer.id] || ''}
+                                  onChange={(e) => setCommentTexts(prev => ({
+                                    ...prev,
+                                    [botAnswer.answer.id]: e.target.value
+                                  }))}
+                                  rows={3}
+                                />
+                                <div className="comment-actions">
+                                  <button
+                                    className="comment-submit-btn"
+                                    onClick={() => handleAddComment(botAnswer.answer.id)}
+                                    disabled={!commentTexts[botAnswer.answer.id]?.trim()}
+                                  >
+                                    Add Comment
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
 
           {(isLoading || visibleAnswers.length > 0 || answers.length > 0 || error) && (
             <section className="answer-section">
@@ -353,7 +733,7 @@ function App() {
               {isLoading && visibleAnswers.length === 0 && (
                 <div className="answer-card">
                   <div className="answer-text" style={{ fontStyle: 'italic', color: '#666' }}>
-                    no one has answered.
+                    No one has answered.
                   </div>
                 </div>
               )}
@@ -424,24 +804,112 @@ function App() {
         </main>
 
         <aside className="right-sidebar">
-          <button className="ask-question-btn">Ask Question</button>
-          <div className="sidebar-widget">
-            <h3 className="widget-title">The Overflow Blog</h3>
-            <ul className="widget-list">
-              <li>Are you learning with AI? We want to know about it!</li>
-              <li>Wanna see a CSS magic trick?</li>
-            </ul>
-          </div>
-          <div className="sidebar-widget">
-            <h3 className="widget-title">Featured on Meta</h3>
-            <ul className="widget-list">
-              <li>Results of the January 2026 Community Asks Sprint: Community Badges</li>
-              <li>All users on Stack Exchange can now participate in chat</li>
-              <li>Policy: Generative AI (e.g., ChatGPT) is banned</li>
-              <li>Stack Overflow now uses machine learning to flag spam automatically</li>
-              <li>No, I do not believe this is the end</li>
-            </ul>
-          </div>
+          {view === 'ask' ? (
+            <>
+              <div className="sidebar-widget draft-guide">
+                <h3 className="widget-title">Draft your question</h3>
+                <p className="draft-intro">
+                  The community is here to help you with specific coding, algorithm, or language problems.
+                </p>
+
+                <div className="draft-sections">
+                  <div className="draft-section">
+                    <button
+                      className="draft-section-header"
+                      onClick={() => setExpandedSections(prev => ({ ...prev, summarize: !prev.summarize }))}
+                    >
+                      <span>1. Summarize the problem</span>
+                      <span className="draft-toggle">{expandedSections.summarize ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedSections.summarize && (
+                      <ul className="draft-list">
+                        <li>Include details about your goal</li>
+                        <li>Describe expected and actual results</li>
+                        <li>Include any error messages</li>
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="draft-section">
+                    <button
+                      className="draft-section-header"
+                      onClick={() => setExpandedSections(prev => ({ ...prev, tried: !prev.tried }))}
+                    >
+                      <span>2. Describe what you've tried</span>
+                      <span className="draft-toggle">{expandedSections.tried ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedSections.tried && (
+                      <ul className="draft-list">
+                        <li>Show what you've attempted so far</li>
+                        <li>Explain what research you've done</li>
+                        <li>Mention any solutions you've considered</li>
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="draft-section">
+                    <button
+                      className="draft-section-header"
+                      onClick={() => setExpandedSections(prev => ({ ...prev, code: !prev.code }))}
+                    >
+                      <span>3. Show some code</span>
+                      <span className="draft-toggle">{expandedSections.code ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedSections.code && (
+                      <ul className="draft-list">
+                        <li>Include relevant code snippets</li>
+                        <li>Use code blocks for readability</li>
+                        <li>Provide minimal reproducible examples</li>
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <div className="draft-links">
+                  <h4 className="draft-links-title">Helpful links</h4>
+                  <ul className="draft-links-list">
+                    <li>
+                      <a href="#" className="draft-link">Find more information about how to ask a good question here.</a>
+                    </li>
+                    <li>
+                      <a href="#" className="draft-link">Visit the help center.</a>
+                    </li>
+                    <li>
+                      <a href="#" className="draft-link">Ask questions about the site on meta.</a>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="draft-feedback">
+                  <a href="#" className="draft-feedback-link">
+                    Help us improve how to ask a question by providing feedback or reporting a bug
+                    <span className="external-link-icon">↗</span>
+                  </a>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <button className="ask-question-btn">Ask Question</button>
+              <div className="sidebar-widget">
+                <h3 className="widget-title">The Overflow Blog</h3>
+                <ul className="widget-list">
+                  <li>Are you learning with AI? We want to know about it!</li>
+                  <li>Wanna see a CSS magic trick?</li>
+                </ul>
+              </div>
+              <div className="sidebar-widget">
+                <h3 className="widget-title">Featured on Meta</h3>
+                <ul className="widget-list">
+                  <li>Results of the January 2026 Community Asks Sprint: Community Badges</li>
+                  <li>All users on Stack Exchange can now participate in chat</li>
+                  <li>Policy: Generative AI (e.g., ChatGPT) is banned</li>
+                  <li>Stack Overflow now uses machine learning to flag spam automatically</li>
+                  <li>No, I do not believe this is the end</li>
+                </ul>
+              </div>
+            </>
+          )}
         </aside>
       </div>
     </div>

@@ -251,12 +251,11 @@ async function generateBotAnswer(
         const prompt = `${bot.systemInstruction}\n\nQuestion: ${question.trim()}`
 
         const modelsToTry = [
+            'gemma-3-12b-it',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
             'gemini-2.0-flash-lite',
-            'gemini-3-flash',
-            'gemini-3',
         ]
 
         let answer: string | null = null
@@ -521,6 +520,53 @@ app.post('/api/questions/:id/answers', async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('Error creating answer:', error)
         res.status(500).json({ error: 'Failed to create answer' })
+    }
+})
+
+// GET /api/answers/:id/comments - Get comments for an answer
+app.get('/api/answers/:id/comments', async (req: Request, res: Response) => {
+    try {
+        const comments = await db.getCommentsForAnswer(req.params.id)
+        res.json(comments)
+    } catch (error: any) {
+        console.error('Error fetching comments:', error)
+        res.status(500).json({ error: 'Failed to fetch comments' })
+    }
+})
+
+// POST /api/answers/:id/comments - Create a comment
+app.post('/api/answers/:id/comments', async (req: Request, res: Response) => {
+    try {
+        const { userId, content, username, avatarUrl, parentId } = req.body
+
+        if (!content) {
+            return res.status(400).json({ error: 'Content is required' })
+        }
+
+        const commentUserId = await ensureUserProfile({
+            userId,
+            username,
+            avatarUrl,
+            isAi: false
+        })
+        if (!commentUserId) {
+            return res.status(401).json({ error: 'User is required to create a comment' })
+        }
+
+        const comment = await db.createComment(req.params.id, commentUserId, content, parentId)
+
+        if (!comment) {
+            return res.status(500).json({ error: 'Failed to create comment' })
+        }
+
+        // Get the comment with profile
+        const comments = await db.getCommentsForAnswer(req.params.id)
+        const newComment = comments.find(c => c.id === comment.id)
+
+        res.json(newComment || comment)
+    } catch (error: any) {
+        console.error('Error creating comment:', error)
+        res.status(500).json({ error: 'Failed to create comment' })
     }
 })
 

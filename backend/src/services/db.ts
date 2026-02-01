@@ -37,6 +37,15 @@ export interface Answer {
     is_accepted: boolean
 }
 
+export interface Comment {
+    id: string
+    created_at: string
+    answer_id: string
+    user_id: string
+    content: string
+    parent_id?: string
+}
+
 // Profile operations
 export async function getProfile(userId: string): Promise<Profile | null> {
     const { data, error } = await supabase
@@ -321,4 +330,49 @@ export async function getTagsForQuestion(questionId: string): Promise<Tag[]> {
         return []
     }
     return data?.map((item: any) => item.tags).filter(Boolean) || []
+}
+
+// Comment operations
+export async function createComment(
+    answerId: string,
+    userId: string,
+    content: string,
+    parentId?: string
+): Promise<Comment | null> {
+    const { data, error } = await supabase
+        .from('comments')
+        .insert({
+            answer_id: answerId,
+            user_id: userId,
+            content,
+            parent_id: parentId || null
+        })
+        .select()
+        .single()
+
+    if (error) {
+        console.error('Error creating comment:', error)
+        return null
+    }
+    return data
+}
+
+export async function getCommentsForAnswer(answerId: string): Promise<(Comment & { profile?: Profile })[]> {
+    const { data, error } = await supabase
+        .from('comments')
+        .select(`
+            *,
+            profile:profiles!comments_user_id_fkey(id, username, avatar_url)
+        `)
+        .eq('answer_id', answerId)
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error('Error fetching comments:', error)
+        return []
+    }
+    return data?.map((item: any) => ({
+        ...item,
+        profile: item.profile || undefined
+    })) || []
 }
