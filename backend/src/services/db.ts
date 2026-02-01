@@ -376,3 +376,52 @@ export async function getCommentsForAnswer(answerId: string): Promise<(Comment &
         profile: item.profile || undefined
     })) || []
 }
+
+// User activity operations
+export async function getQuestionsByUser(userId: string): Promise<Question[]> {
+    const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Error fetching user questions:', error)
+        return []
+    }
+    return data || []
+}
+
+export async function getAnswersByUser(userId: string): Promise<Answer[]> {
+    const { data, error } = await supabase
+        .from('answers')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Error fetching user answers:', error)
+        return []
+    }
+    return data || []
+}
+
+export async function getCommentsByUser(userId: string): Promise<(Comment & { profile?: Profile })[]> {
+    const { data, error } = await supabase
+        .from('comments')
+        .select(`
+            *,
+            profile:profiles!comments_user_id_fkey(id, username, avatar_url)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Error fetching user comments:', error)
+        return []
+    }
+    return data?.map((item: any) => ({
+        ...item,
+        profile: item.profile || undefined
+    })) || []
+}

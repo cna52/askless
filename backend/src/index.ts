@@ -626,6 +626,41 @@ app.get('/', (req: Request, res: Response) => {
     })
 })
 
+// GET /api/users/:id/profile - Get user profile and activity
+app.get('/api/users/:id/profile', async (req: Request, res: Response) => {
+    try {
+        const userId = req.params.id
+        const profile = await db.getProfile(userId)
+
+        if (!profile) {
+            return res.status(404).json({ error: 'Profile not found' })
+        }
+
+        const [questions, answers, comments] = await Promise.all([
+            db.getQuestionsByUser(userId),
+            db.getAnswersByUser(userId),
+            db.getCommentsByUser(userId)
+        ])
+
+        res.json({
+            profile,
+            activity: {
+                questions,
+                answers,
+                comments
+            },
+            stats: {
+                questionsCount: questions.length,
+                answersCount: answers.length,
+                commentsCount: comments.length
+            }
+        })
+    } catch (error: any) {
+        console.error('Error fetching user profile:', error)
+        res.status(500).json({ error: 'Failed to fetch user profile' })
+    }
+})
+
 // POST /api/bots/initialize - Manually initialize bot profiles
 app.post('/api/bots/initialize', async (req: Request, res: Response) => {
     try {
