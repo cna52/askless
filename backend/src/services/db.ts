@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../lib/supabase.js'
 
 // Types matching your database schema
 export interface Profile {
@@ -373,6 +373,74 @@ export async function getTagsForQuestion(questionId: string): Promise<Tag[]> {
         return []
     }
     return data?.map((item: any) => item.tags).filter(Boolean) || []
+}
+
+export interface TagWithCount extends Tag {
+    question_count: number
+}
+
+export async function getTagsWithCounts(): Promise<TagWithCount[]> {
+    const { data: tags, error: tagsError } = await supabase
+        .from('tags')
+        .select('id, name')
+        .order('name', { ascending: true })
+
+    if (tagsError) {
+        console.error('Error fetching tags:', tagsError)
+        return []
+    }
+
+    if (!tags || tags.length === 0) {
+        return []
+    }
+
+    // Get question counts for each tag
+    const tagIds = tags.map(t => t.id)
+    const { data: questionTags, error: questionTagsError } = await supabase
+        .from('question_tags')
+        .select('tag_id')
+        .in('tag_id', tagIds)
+
+    if (questionTagsError) {
+        console.error('Error fetching question tags:', questionTagsError)
+        return tags.map(tag => ({ ...tag, question_count: 0 }))
+    }
+
+    // Count questions per tag
+    const countMap = new Map<number, number>()
+    questionTags?.forEach((qt: any) => {
+        const tagId = qt.tag_id
+        countMap.set(tagId, (countMap.get(tagId) || 0) + 1)
+    })
+
+    return tags.map(tag => ({
+        ...tag,
+        question_count: countMap.get(tag.id) || 0
+    }))
+}
+
+export async function getQuestionsByTag(tagId: number): Promise<Question[]> {
+    const { data, error } = await supabase
+        .from('question_tags')
+        .select(`
+            question_id,
+            questions (
+                id,
+                title,
+                content,
+                created_at,
+                user_id,
+                status
+            )
+        `)
+        .eq('tag_id', tagId)
+
+    if (error) {
+        console.error('Error fetching questions by tag:', error)
+        return []
+    }
+
+    return data?.map((item: any) => item.questions).filter(Boolean) || []
 }
 
 // Comment operations

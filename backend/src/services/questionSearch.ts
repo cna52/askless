@@ -1,5 +1,5 @@
-import { supabase } from '../lib/supabase'
-import * as db from './db'
+import { supabase } from '../lib/supabase.js'
+import * as db from './db.js'
 
 interface SimilarQuestion {
     question_id: string
