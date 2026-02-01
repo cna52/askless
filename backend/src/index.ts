@@ -333,6 +333,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
                 .from('tags')
                 .select('name')
                 .in('id', tagIds)
+
             
             tagNames = selectedTags?.map(t => t.name) || []
             console.log('User selected tags:', tagNames)
@@ -639,6 +640,75 @@ app.post('/api/answers/:id/comments', async (req: Request, res: Response) => {
     }
 })
 
+// GET /api/questions/:id/comments - Get comments for a question
+app.get('/api/questions/:id/comments', async (req: Request, res: Response) => {
+    try {
+        const comments = await db.getCommentsForQuestion(req.params.id)
+        res.json(comments)
+    } catch (error: any) {
+        console.error('Error fetching question comments:', error)
+        res.status(500).json({ error: 'Failed to fetch question comments' })
+    }
+})
+
+// POST /api/questions/:id/comments - Create a comment on a question
+app.post('/api/questions/:id/comments', async (req: Request, res: Response) => {
+    try {
+        const { userId, content, username, avatarUrl, parentId } = req.body
+
+        if (!content) {
+            return res.status(400).json({ error: 'Content is required' })
+        }
+
+        const commentUserId = await ensureUserProfile({
+            userId,
+            username,
+            avatarUrl,
+            isAi: false
+        })
+        if (!commentUserId) {
+            return res.status(401).json({ error: 'User is required to create a comment' })
+        }
+
+        const comment = await db.createQuestionComment(req.params.id, commentUserId, content, parentId)
+
+        if (!comment) {
+            return res.status(500).json({ error: 'Failed to create comment' })
+        }
+
+        // Get the comment with profile
+        const comments = await db.getCommentsForQuestion(req.params.id)
+        const newComment = comments.find(c => c.id === comment.id)
+
+        res.json(newComment || comment)
+    } catch (error: any) {
+        console.error('Error creating question comment:', error)
+        res.status(500).json({ error: 'Failed to create question comment' })
+    }
+})
+
+// DELETE /api/comments/:id - Delete a comment
+app.delete('/api/comments/:id', async (req: Request, res: Response) => {
+    try {
+        const { userId } = req.body
+
+        if (!userId) {
+            return res.status(401).json({ error: 'User is required to delete a comment' })
+        }
+
+        const deleted = await db.deleteComment(req.params.id, userId)
+
+        if (!deleted) {
+            return res.status(403).json({ error: 'Failed to delete comment. You may not have permission.' })
+        }
+
+        res.json({ success: true })
+    } catch (error: any) {
+        console.error('Error deleting comment:', error)
+        res.status(500).json({ error: 'Failed to delete comment' })
+    }
+})
+
 // GET /api/tags - Get all tags
 app.get('/api/tags', async (req: Request, res: Response) => {
     try {
@@ -735,6 +805,64 @@ app.get('/', (req: Request, res: Response) => {
         hasApiKey: !!config?.apiKey,
         botCount: BOT_PERSONALITIES.length
     })
+})
+
+// GET /api/users/:id/profile - Get user profile and activity
+app.get('/api/users/:id/profile', async (req: Request, res: Response) => {
+    try {
+        const userId = req.params.id
+        const profile = await db.getProfile(userId)
+
+        if (!profile) {
+            return res.status(404).json({ error: 'Profile not found' })
+        }
+
+        const [questions, answers] = await Promise.all([
+            db.getQuestionsByUser(userId),
+            db.getAnswersByUser(userId)
+        ])
+
+        // Enrich questions with tags and answer counts
+        const questionsWithDetails = await Promise.all(
+            questions.map(async (question) => {
+                const [tags, answerList, questionCommentsList] = await Promise.all([
+                    db.getTagsForQuestion(question.id),
+                    db.getAnswersForQuestion(question.id),
+                    db.getCommentsForQuestion(question.id)
+                ])
+                // Count includes: AI answers + user answers (comments on answers) + question comments (top-level comments on questions)
+                const topLevelQuestionComments = questionCommentsList.filter(c => !c.parent_id || c.parent_id === null)
+                // For each answer, count top-level comments
+                let totalUserAnswers = 0
+                for (const answer of answerList) {
+                    const answerComments = await db.getCommentsForAnswer(answer.id)
+                    const topLevelComments = answerComments.filter(c => !c.parent_id || c.parent_id === null)
+                    totalUserAnswers += topLevelComments.length
+                }
+                const totalAnswerCount = answerList.length + totalUserAnswers + topLevelQuestionComments.length
+                return {
+                    ...question,
+                    tags: tags || [],
+                    answerCount: totalAnswerCount
+                }
+            })
+        )
+
+        res.json({
+            profile,
+            activity: {
+                questions: questionsWithDetails,
+                answers
+            },
+            stats: {
+                questionsCount: questions.length,
+                answersCount: answers.length
+            }
+        })
+    } catch (error: any) {
+        console.error('Error fetching user profile:', error)
+        res.status(500).json({ error: 'Failed to fetch user profile' })
+    }
 })
 
 // POST /api/bots/initialize - Manually initialize bot profiles
